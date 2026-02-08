@@ -54,8 +54,10 @@ def ChatGPT_API_ollama(model=None, prompt=None, api_key=None, chat_history=None)
     if prompt is None:
         raise ValueError("Prompt is required")
     
-    # Ollama не требует API ключ, но openai.OpenAI требует его наличие
-    # Используем фиктивный ключ если не передан
+    # CRITICAL: Ollama не требует API ключ, но openai.OpenAI требует его наличие
+    # PageIndex может передавать api_key=None или пустую строку
+    # Также может передавать значение из CHATGPT_API_KEY env var (которое может быть None)
+    # Всегда используем фиктивный ключ для Ollama
     if api_key is None or api_key == "":
         api_key = "ollama-dummy-key"
     
@@ -67,6 +69,7 @@ def ChatGPT_API_ollama(model=None, prompt=None, api_key=None, chat_history=None)
         )
     except Exception as e:
         logging.error(f"Error creating OpenAI client for Ollama: {e}")
+        logging.error(f"api_key value: {repr(api_key)}")
         raise
     
     for i in range(max_retries):
