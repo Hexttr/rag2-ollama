@@ -123,12 +123,131 @@ class PageIndexService:
         Returns:
             Dictionary with relevant nodes and reasoning
         """
-        # This will be implemented with Ollama service
-        # For now, return structure
+        from app.services.ollama_service import OllamaService
+        
         index_data = self.load_index(index_path)
-        return {
-            "query": query,
-            "index": index_data,
-            "max_nodes": max_nodes
-        }
+        ollama_service = OllamaService()
+        
+        # Create tree summary for LLM
+        tree_summary = self._create_tree_summary(index_data.get("structure", []))
+        
+        # Reasoning-based search prompt
+        prompt = f"""Вы - эксперт по анализу документов. Ваша задача - найти наиболее релевантные разделы документа для ответа на вопрос пользователя.
+
+Структура документа:
+{json.dumps(tree_summary, indent=2, ensure_ascii=False)}
+
+Вопрос пользователя: {query}
+
+Проанализируйте структуру документа и определите, какие разделы наиболее релевантны для ответа на вопрос.
+
+Верните JSON в следующем формате:
+{{
+    "reasoning": "Ваше рассуждение о том, почему выбранные разделы релевантны",
+    "relevant_nodes": [
+        {{
+            "node_id": "ID узла",
+            "title": "Название раздела",
+            "relevance_score": "высокая/средняя/низкая",
+            "reason": "Почему этот раздел релевантен"
+        }}
+    ]
+}}
+
+Выберите до {max_nodes} наиболее релевантных узлов."""
+        
+        try:
+            response = await ollama_service.generate_response(prompt)
+            
+            # Parse JSON response
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                # Fallback if JSON parsing fails
+                result = {
+                    "reasoning": response[:200],
+                    "relevant_nodes": []
+                }
+            
+            # Find actual nodes in structure
+            relevant_nodes = []
+            if "relevant_nodes" in result:
+                node_ids = [node.get("node_id") for node in result["relevant_nodes"]]
+                relevant_nodes = self._find_nodes_by_ids(
+                    index_data.get("structure", []),
+                    node_ids
+                )
+            
+            return {
+                "query": query,
+                "reasoning": result.get("reasoning", ""),
+                "nodes": relevant_nodes,
+                "index": index_data
+            }
+        except Exception as e:
+            logger.error(f"Tree search failed: {e}")
+            # Fallback: return full structure
+            return {
+                "query": query,
+                "reasoning": "Ошибка при поиске, возвращена полная структура",
+                "nodes": [],
+                "index": index_data
+            }
+    
+    def _create_tree_summary(self, tree: list, max_depth: int = 3) -> list:
+        """Create simplified tree representation for LLM"""
+        summary = []
+        
+        def traverse(node, depth=0):
+            if depth > max_depth:
+                return
+            
+            if isinstance(node, dict):
+                node_info = {
+                    "node_id": node.get("node_id", ""),
+                    "title": node.get("title", ""),
+                    "summary": node.get("summary", "")[:200] if node.get("summary") else "",
+                    "start_index": node.get("start_index", 0),
+                    "end_index": node.get("end_index", 0)
+                }
+                
+                if "nodes" in node and node["nodes"]:
+                    node_info["children"] = []
+                    for child in node["nodes"]:
+                        child_info = traverse(child, depth + 1)
+                        if child_info:
+                            node_info["children"].append({
+                                "node_id": child.get("node_id", ""),
+                                "title": child.get("title", ""),
+                                "summary": child.get("summary", "")[:200] if child.get("summary") else ""
+                            })
+                
+                return node_info
+            return None
+        
+        for root_node in tree:
+            node_info = traverse(root_node)
+            if node_info:
+                summary.append(node_info)
+        
+        return summary
+    
+    def _find_nodes_by_ids(self, tree: list, node_ids: list) -> list:
+        """Find nodes by their IDs in the tree"""
+        found_nodes = []
+        
+        def search(node):
+            if isinstance(node, dict):
+                if node.get("node_id") in node_ids:
+                    found_nodes.append(node)
+                if "nodes" in node:
+                    for child in node["nodes"]:
+                        search(child)
+        
+        for root_node in tree:
+            search(root_node)
+        
+        return found_nodes
 

@@ -26,6 +26,14 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(documents.router)
 
+# Chat routes
+from app.api.routes import chat
+app.include_router(chat.router)
+
+# WebSocket routes
+from app.api.routes import websocket
+app.include_router(websocket.router)
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup"""

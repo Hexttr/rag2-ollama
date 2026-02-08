@@ -2,6 +2,9 @@
 Document API routes
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+import logging
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 from typing import List
 from app.database.database import get_db
@@ -76,17 +79,42 @@ async def index_document_task(document_id: int, file_path: str):
     from app.database.database import SessionLocal
     from app.services.document_service import DocumentService
     from app.services.pageindex_service import PageIndexService
+    from app.api.routes.websocket import get_connection_manager
     
     db = SessionLocal()
+    manager = get_connection_manager()
+    
     try:
         service = DocumentService(db)
         pageindex_service = PageIndexService()
         
+        # Notify: indexing started
+        await manager.broadcast_to_document(document_id, {
+            "type": "status_update",
+            "status": "indexing",
+            "message": "Индексация началась..."
+        })
+        
         # Update status to indexing
         service.update_document_status(document_id, DocumentStatus.INDEXING)
         
+        # Notify: processing
+        await manager.broadcast_to_document(document_id, {
+            "type": "status_update",
+            "status": "indexing",
+            "message": "Обработка документа..."
+        })
+        
         # Index document
         result = await pageindex_service.index_document(file_path)
+        
+        # Notify: indexing complete
+        await manager.broadcast_to_document(document_id, {
+            "type": "status_update",
+            "status": "ready",
+            "message": "Индексация завершена",
+            "index_path": result["index_path"]
+        })
         
         # Update status to ready
         service.update_document_status(
@@ -94,13 +122,24 @@ async def index_document_task(document_id: int, file_path: str):
             DocumentStatus.READY,
             index_path=result["index_path"]
         )
+        
     except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Indexing failed for document {document_id}: {error_msg}")
+        
+        # Notify: error
+        await manager.broadcast_to_document(document_id, {
+            "type": "status_update",
+            "status": "error",
+            "message": f"Ошибка индексации: {error_msg}"
+        })
+        
         # Update status to error
         service = DocumentService(db)
         service.update_document_status(
             document_id,
             DocumentStatus.ERROR,
-            error_message=str(e)
+            error_message=error_msg
         )
     finally:
         db.close()
