@@ -33,6 +33,28 @@ const Sidebar: React.FC<SidebarProps> = ({
     enabled: !!selectedDocumentId,
   })
 
+  const queryClient = useQueryClient()
+  
+  const deleteDocument = useMutation({
+    mutationFn: (id: number) => documentsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents'] })
+      // If deleted document was selected, clear selection
+      if (selectedDocumentId) {
+        onDocumentSelect(null)
+      }
+    },
+  })
+
+  const handleDeleteDocument = async (id: number) => {
+    try {
+      await deleteDocument.mutateAsync(id)
+    } catch (error) {
+      console.error('Error deleting document:', error)
+      alert('Ошибка при удалении документа')
+    }
+  }
+
   return (
     <aside className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
       {/* Tabs */}
