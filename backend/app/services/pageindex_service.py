@@ -20,11 +20,15 @@ if str(project_root) not in sys.path:
 if str(pageindex_path) not in sys.path:
     sys.path.insert(0, str(pageindex_path))
 
+# Log paths for debugging
 logger_temp = logging.getLogger(__name__)
-logger_temp.info(f"Project root: {project_root}")
-logger_temp.info(f"PageIndex path: {pageindex_path}")
-logger_temp.info(f"PageIndex exists: {pageindex_path.exists()}")
-logger_temp.info(f"pageindex_ollama exists: {pageindex_ollama_path.exists()}")
+try:
+    logger_temp.info(f"Project root: {project_root}")
+    logger_temp.info(f"PageIndex path: {pageindex_path}")
+    logger_temp.info(f"PageIndex exists: {pageindex_path.exists()}")
+    logger_temp.info(f"pageindex_ollama exists: {pageindex_ollama_path.exists()}")
+except:
+    pass  # Don't fail if logging fails
 
 try:
     # First import pageindex_ollama (it's in project root)

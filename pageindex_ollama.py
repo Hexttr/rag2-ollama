@@ -193,13 +193,13 @@ def patch_pageindex_for_ollama():
         utils.ChatGPT_API_async = ChatGPT_API_async_ollama
         utils.ChatGPT_API_with_finish_reason = ChatGPT_API_with_finish_reason_ollama
         
-        print("✅ PageIndex успешно настроен для работы с Ollama!")
-        print(f"   Модель: {OLLAMA_MODEL}")
+        print("[OK] PageIndex successfully configured for Ollama!")
+        print(f"   Model: {OLLAMA_MODEL}")
         print(f"   URL: {OLLAMA_BASE_URL}")
         
         return True
     except ImportError as e:
-        print(f"❌ Ошибка импорта pageindex: {e}")
+        print(f"[ERROR] Failed to import pageindex: {e}")
         return False
 
 if __name__ == "__main__":
