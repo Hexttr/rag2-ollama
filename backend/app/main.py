@@ -8,12 +8,26 @@ from app.core.config import settings
 from app.database.database import init_db
 from app.api.routes import documents, health
 
+# Configure logging to both console and file
+import os
+from pathlib import Path
+
+# Create logs directory
+log_dir = Path(__file__).parent.parent / "logs"
+log_dir.mkdir(exist_ok=True)
+log_file = log_dir / "backend.log"
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler()  # Also log to console
+    ]
 )
 logger = logging.getLogger(__name__)
+logger.info(f"Logging to file: {log_file}")
 
 app = FastAPI(
     title="PageIndex Chat API",
