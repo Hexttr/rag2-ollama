@@ -200,11 +200,24 @@ def patch_pageindex_for_ollama():
     Заменяет функции в pageindex.utils на версии для Ollama
     """
     try:
-        from pageindex import utils
+        # Import utils module (may already be imported)
+        import sys
+        if 'pageindex.utils' in sys.modules:
+            # Module already imported, patch it directly
+            from pageindex import utils
+        else:
+            # Module not imported yet, import it first
+            from pageindex import utils
         
+        # Replace functions with Ollama versions
         utils.ChatGPT_API = ChatGPT_API_ollama
         utils.ChatGPT_API_async = ChatGPT_API_async_ollama
         utils.ChatGPT_API_with_finish_reason = ChatGPT_API_with_finish_reason_ollama
+        
+        # Verify patch was applied
+        if utils.ChatGPT_API is not ChatGPT_API_ollama:
+            print("[WARNING] Patch may not have been applied correctly!")
+            return False
         
         print("[OK] PageIndex successfully configured for Ollama!")
         print(f"   Model: {OLLAMA_MODEL}")
@@ -213,6 +226,13 @@ def patch_pageindex_for_ollama():
         return True
     except ImportError as e:
         print(f"[ERROR] Failed to import pageindex: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    except Exception as e:
+        print(f"[ERROR] Failed to patch pageindex: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 if __name__ == "__main__":
