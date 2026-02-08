@@ -1,272 +1,319 @@
 """
-Интеграция Ollama с PageIndex
-Позволяет использовать локальные LLM модели вместо OpenAI API
+Патчинг PageIndex для работы с Ollama вместо OpenAI
 """
-
 import os
+import sys
 import openai
-import time
 import asyncio
 import logging
+from typing import Optional
+import httpx
 
-# Настройка Ollama
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+logger = logging.getLogger(__name__)
 
-# Проверка доступности Ollama
-def check_ollama_connection():
-    """Проверяет, доступен ли Ollama сервер"""
+# Настройки Ollama по умолчанию
+DEFAULT_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+DEFAULT_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
+
+# Глобальные переменные для хранения настроек
+_ollama_base_url = DEFAULT_OLLAMA_BASE_URL
+_ollama_model = DEFAULT_OLLAMA_MODEL
+_patched = False
+
+
+def check_ollama_connection(base_url: Optional[str] = None) -> bool:
+    """Проверка подключения к Ollama"""
     try:
-        import requests
-        base_url = OLLAMA_BASE_URL.replace('/v1', '')
-        response = requests.get(f"{base_url}/api/tags", timeout=5)
+        url = (base_url or _ollama_base_url).replace('/v1', '')
+        response = httpx.get(f"{url}/api/tags", timeout=5.0)
         return response.status_code == 200
-    except ImportError:
-        # requests не установлен, но это не критично
-        # Попробуем через urllib
-        try:
-            import urllib.request
-            base_url = OLLAMA_BASE_URL.replace('/v1', '')
-            req = urllib.request.Request(f"{base_url}/api/tags")
-            urllib.request.urlopen(req, timeout=5)
-            return True
-        except:
-            return False
-    except:
+    except Exception as e:
+        logger.warning(f"Ollama connection check failed: {e}")
         return False
 
-def ChatGPT_API_ollama(model=None, prompt=None, api_key=None, chat_history=None):
+
+def patch_pageindex_for_ollama(
+    base_url: Optional[str] = None,
+    model: Optional[str] = None
+) -> bool:
     """
-    Замена ChatGPT_API для работы с Ollama
+    Патчит функции PageIndex для работы с Ollama
     
     Args:
-        model: Название модели Ollama (по умолчанию из OLLAMA_MODEL)
-        prompt: Текст запроса
-        api_key: Не используется для Ollama, но нужен для совместимости (может быть None)
-        chat_history: История чата (опционально)
+        base_url: URL Ollama API (по умолчанию http://localhost:11434/v1)
+        model: Модель Ollama (по умолчанию llama3.2)
     
     Returns:
-        str: Ответ модели
+        True если патчинг успешен
     """
-    if model is None:
-        model = OLLAMA_MODEL
+    global _ollama_base_url, _ollama_model, _patched
     
-    if prompt is None:
-        raise ValueError("Prompt is required")
+    if _patched:
+        logger.info("PageIndex уже патчен для Ollama")
+        return True
     
-    # CRITICAL: Ollama не требует API ключ, но openai.OpenAI требует его наличие
-    # PageIndex может передавать api_key=None или пустую строку
-    # Также может передавать значение из CHATGPT_API_KEY env var (которое может быть None)
-    # Всегда используем фиктивный ключ для Ollama
-    if api_key is None or api_key == "":
-        api_key = "ollama-dummy-key"
+    # Устанавливаем настройки
+    _ollama_base_url = base_url or DEFAULT_OLLAMA_BASE_URL
+    _ollama_model = model or DEFAULT_OLLAMA_MODEL
     
-    max_retries = 10
-    try:
-        client = openai.OpenAI(
-            api_key=api_key,  # Фиктивный ключ для Ollama
-            base_url=OLLAMA_BASE_URL
-        )
-    except Exception as e:
-        logging.error(f"Error creating OpenAI client for Ollama: {e}")
-        logging.error(f"api_key value: {repr(api_key)}")
-        raise
+    # Проверяем подключение
+    if not check_ollama_connection(_ollama_base_url):
+        logger.warning("⚠️  Ollama недоступен, но продолжаем патчинг...")
     
-    for i in range(max_retries):
-        try:
-            if chat_history:
-                messages = chat_history.copy()
-                messages.append({"role": "user", "content": prompt})
-            else:
-                messages = [{"role": "user", "content": prompt}]
-            
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0,
-            )
-            
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f'************* Retrying ({i+1}/{max_retries}) *************')
-            logging.error(f"Error: {e}")
-            if i < max_retries - 1:
-                time.sleep(2)  # Увеличено время ожидания для локальных моделей
-            else:
-                logging.error('Max retries reached for prompt: ' + prompt[:100])
-                return "Error"
-
-async def ChatGPT_API_async_ollama(model=None, prompt=None, api_key=None):
-    """
-    Асинхронная версия для Ollama
-    
-    Args:
-        model: Название модели Ollama
-        prompt: Текст запроса
-        api_key: Не используется для Ollama (может быть None)
-    
-    Returns:
-        str: Ответ модели
-    """
-    if model is None:
-        model = OLLAMA_MODEL
-    
-    if prompt is None:
-        raise ValueError("Prompt is required")
-    
-    # Ollama не требует API ключ, но openai.AsyncOpenAI требует его наличие
-    if api_key is None or api_key == "":
-        api_key = "ollama-dummy-key"
-    
-    max_retries = 10
-    messages = [{"role": "user", "content": prompt}]
-    
-    for i in range(max_retries):
-        try:
-            client = openai.AsyncOpenAI(
-                api_key=api_key,  # Фиктивный ключ для Ollama
-                base_url=OLLAMA_BASE_URL
-            )
-            
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0,
-            )
-            
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f'************* Retrying ({i+1}/{max_retries}) *************')
-            logging.error(f"Error: {e}")
-            if i < max_retries - 1:
-                await asyncio.sleep(2)  # Увеличено время ожидания
-            else:
-                logging.error('Max retries reached for prompt: ' + prompt[:100])
-                return "Error"
-
-def ChatGPT_API_with_finish_reason_ollama(model=None, prompt=None, api_key=None, chat_history=None):
-    """
-    Версия с finish_reason для Ollama
-    
-    Args:
-        model: Название модели Ollama
-        prompt: Текст запроса
-        api_key: Не используется для Ollama (может быть None)
-        chat_history: История чата (опционально)
-    
-    Returns:
-        tuple: (ответ, finish_reason)
-    """
-    if model is None:
-        model = OLLAMA_MODEL
-    
-    if prompt is None:
-        raise ValueError("Prompt is required")
-    
-    # Ollama не требует API ключ, но openai.OpenAI требует его наличие
-    if api_key is None or api_key == "":
-        api_key = "ollama-dummy-key"
-    
-    max_retries = 10
-    client = openai.OpenAI(
-        api_key=api_key,  # Фиктивный ключ для Ollama
-        base_url=OLLAMA_BASE_URL
-    )
-    
-    for i in range(max_retries):
-        try:
-            if chat_history:
-                messages = chat_history.copy()
-                messages.append({"role": "user", "content": prompt})
-            else:
-                messages = [{"role": "user", "content": prompt}]
-            
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0,
-            )
-            
-            finish_reason = response.choices[0].finish_reason
-            if finish_reason == "length":
-                return response.choices[0].message.content, "max_output_reached"
-            else:
-                return response.choices[0].message.content, "finished"
-        except Exception as e:
-            print(f'************* Retrying ({i+1}/{max_retries}) *************')
-            logging.error(f"Error: {e}")
-            if i < max_retries - 1:
-                time.sleep(2)
-            else:
-                logging.error('Max retries reached for prompt: ' + prompt[:100])
-                return "Error", "error"
-
-# Функция для патчинга модуля pageindex.utils
-def patch_pageindex_for_ollama():
-    """
-    Заменяет функции в pageindex.utils и pageindex.page_index на версии для Ollama
-    """
     try:
         import sys
+        from pathlib import Path
         
-        # Import utils module (may already be imported)
-        if 'pageindex.utils' in sys.modules:
-            # Module already imported, patch it directly
-            from pageindex import utils
-        else:
-            # Module not imported yet, import it first
-            from pageindex import utils
+        # Добавляем путь к PageIndex в sys.path если его там нет
+        pageindex_path = Path(__file__).parent / "PageIndex"
+        if str(pageindex_path.parent) not in sys.path:
+            sys.path.insert(0, str(pageindex_path.parent))
         
-        # Replace functions in utils module
-        utils.ChatGPT_API = ChatGPT_API_ollama
-        utils.ChatGPT_API_async = ChatGPT_API_async_ollama
-        utils.ChatGPT_API_with_finish_reason = ChatGPT_API_with_finish_reason_ollama
+        # Импортируем модуль utils
+        # Пробуем разные варианты импорта
+        utils = None
+        utils_module_name = None
         
-        # CRITICAL: page_index.py uses "from .utils import *"
-        # So we need to patch functions in page_index module too!
-        if 'pageindex.page_index' in sys.modules:
-            from pageindex import page_index
-            # Patch functions in page_index module (they were imported via "from .utils import *")
-            page_index.ChatGPT_API = ChatGPT_API_ollama
-            page_index.ChatGPT_API_async = ChatGPT_API_async_ollama
-            page_index.ChatGPT_API_with_finish_reason = ChatGPT_API_with_finish_reason_ollama
+        # Пробуем импортировать из PageIndex.pageindex
+        try:
+            from PageIndex.pageindex import utils
+            utils_module_name = 'PageIndex.pageindex.utils'
+        except ImportError:
+            # Пробуем прямой импорт
+            try:
+                from pageindex import utils
+                utils_module_name = 'pageindex.utils'
+            except ImportError:
+                # Ищем в sys.modules
+                for module_name in list(sys.modules.keys()):
+                    if module_name.endswith('.utils') and 'pageindex' in module_name:
+                        utils = sys.modules[module_name]
+                        utils_module_name = module_name
+                        break
         
-        # Verify patch was applied in utils
-        if utils.ChatGPT_API is not ChatGPT_API_ollama:
-            print("[WARNING] Patch may not have been applied correctly in utils!")
-            return False
+        # Если не нашли, пробуем импортировать напрямую
+        if utils is None:
+            try:
+                import importlib
+                # Пробуем разные варианты имени модуля
+                for module_name in ['PageIndex.pageindex.utils', 'pageindex.utils', 'PageIndex.pageindex.utils']:
+                    try:
+                        utils = importlib.import_module(module_name)
+                        utils_module_name = module_name
+                        break
+                    except ImportError:
+                        continue
+            except Exception as e:
+                logger.error(f"Ошибка при импорте utils: {e}")
         
-        print("[OK] PageIndex successfully configured for Ollama!")
-        print(f"   Model: {OLLAMA_MODEL}")
-        print(f"   URL: {OLLAMA_BASE_URL}")
+        if utils is None:
+            raise ImportError("Не удалось найти модуль utils из PageIndex")
         
-        return True
-    except ImportError as e:
-        print(f"[ERROR] Failed to import pageindex: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-    except Exception as e:
-        print(f"[ERROR] Failed to patch pageindex: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-if __name__ == "__main__":
-    # Тестирование подключения
-    print("Проверка подключения к Ollama...")
-    if check_ollama_connection():
-        print("✅ Ollama доступен!")
+        logger.info(f"Найден модуль utils: {utils_module_name}")
         
-        # Тестовый запрос
-        print("\nТестовый запрос...")
-        response = ChatGPT_API_ollama(
-            model=OLLAMA_MODEL,
-            prompt="Привет! Ответь коротко: работает ли Ollama с PageIndex?"
+        # Создаем клиент OpenAI-совместимый для Ollama
+        ollama_client = openai.OpenAI(
+            api_key="ollama",  # Не используется, но требуется для совместимости
+            base_url=_ollama_base_url
         )
-        print(f"Ответ: {response}")
-    else:
-        print("❌ Ollama недоступен!")
-        print("   Убедитесь, что Ollama запущен: ollama serve")
-        print("   Или установите: https://ollama.com")
+        
+        ollama_async_client = openai.AsyncOpenAI(
+            api_key="ollama",
+            base_url=_ollama_base_url
+        )
+        
+        # Патчим ChatGPT_API
+        def patched_ChatGPT_API(model=None, prompt=None, api_key=None, chat_history=None):
+            """Патченая версия ChatGPT_API для Ollama"""
+            max_retries = 10
+            model = model or _ollama_model
+            
+            for i in range(max_retries):
+                try:
+                    if chat_history:
+                        messages = chat_history.copy()
+                        messages.append({"role": "user", "content": prompt})
+                    else:
+                        messages = [{"role": "user", "content": prompt}]
+                    
+                    response = ollama_client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=0,
+                    )
+                    
+                    return response.choices[0].message.content
+                except Exception as e:
+                    logger.warning(f'************* Retrying ({i+1}/{max_retries}) *************')
+                    logger.error(f"Error: {e}")
+                    if i < max_retries - 1:
+                        import time
+                        time.sleep(1)
+                    else:
+                        logger.error('Max retries reached for prompt: ' + str(prompt)[:100])
+                        return "Error"
+        
+        # Патчим ChatGPT_API_with_finish_reason
+        def patched_ChatGPT_API_with_finish_reason(model=None, prompt=None, api_key=None, chat_history=None):
+            """Патченая версия ChatGPT_API_with_finish_reason для Ollama"""
+            max_retries = 10
+            model = model or _ollama_model
+            
+            for i in range(max_retries):
+                try:
+                    if chat_history:
+                        messages = chat_history.copy()
+                        messages.append({"role": "user", "content": prompt})
+                    else:
+                        messages = [{"role": "user", "content": prompt}]
+                    
+                    response = ollama_client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=0,
+                    )
+                    
+                    finish_reason = response.choices[0].finish_reason
+                    if finish_reason == "length":
+                        return response.choices[0].message.content, "max_output_reached"
+                    else:
+                        return response.choices[0].message.content, "finished"
+                except Exception as e:
+                    logger.warning(f'************* Retrying ({i+1}/{max_retries}) *************')
+                    logger.error(f"Error: {e}")
+                    if i < max_retries - 1:
+                        import time
+                        time.sleep(1)
+                    else:
+                        logger.error('Max retries reached for prompt: ' + str(prompt)[:100])
+                        return "Error", "error"
+        
+        # Патчим ChatGPT_API_async
+        async def patched_ChatGPT_API_async(model=None, prompt=None, api_key=None):
+            """Патченая версия ChatGPT_API_async для Ollama"""
+            max_retries = 10
+            model = model or _ollama_model
+            messages = [{"role": "user", "content": prompt}]
+            
+            for i in range(max_retries):
+                try:
+                    response = await ollama_async_client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=0,
+                    )
+                    return response.choices[0].message.content
+                except Exception as e:
+                    logger.warning(f'************* Retrying ({i+1}/{max_retries}) *************')
+                    logger.error(f"Error: {e}")
+                    if i < max_retries - 1:
+                        await asyncio.sleep(1)
+                    else:
+                        logger.error('Max retries reached for prompt: ' + str(prompt)[:100])
+                        return "Error"
+        
+        # Патчим count_tokens для работы с моделями Ollama
+        original_count_tokens = utils.count_tokens
+        
+        def patched_count_tokens(text, model=None):
+            """Патченая версия count_tokens для Ollama"""
+            if not text:
+                return 0
+            try:
+                # Пробуем использовать оригинальную функцию
+                return original_count_tokens(text, model)
+            except Exception:
+                # Если не получилось (например, модель Ollama не известна tiktoken),
+                # используем универсальный энкодер cl100k_base (используется в GPT-4)
+                import tiktoken
+                try:
+                    enc = tiktoken.get_encoding("cl100k_base")
+                    return len(enc.encode(text))
+                except Exception:
+                    # Если и это не работает, используем простое приближение
+                    # ~4 символа = 1 токен
+                    return len(text) // 4
+        
+        # Заменяем функции в модуле
+        utils.ChatGPT_API = patched_ChatGPT_API
+        utils.ChatGPT_API_with_finish_reason = patched_ChatGPT_API_with_finish_reason
+        utils.ChatGPT_API_async = patched_ChatGPT_API_async
+        utils.count_tokens = patched_count_tokens
+        
+        # Проверяем, что патчинг применился
+        if hasattr(utils, 'ChatGPT_API') and utils.ChatGPT_API == patched_ChatGPT_API:
+            logger.info("Патчинг ChatGPT_API применен успешно")
+        else:
+            logger.warning("Патчинг ChatGPT_API не применен!")
+        
+        # Также патчим в sys.modules на случай, если модуль уже закэширован
+        if utils_module_name and utils_module_name in sys.modules:
+            sys.modules[utils_module_name].ChatGPT_API = patched_ChatGPT_API
+            sys.modules[utils_module_name].ChatGPT_API_with_finish_reason = patched_ChatGPT_API_with_finish_reason
+            sys.modules[utils_module_name].ChatGPT_API_async = patched_ChatGPT_API_async
+            sys.modules[utils_module_name].count_tokens = patched_count_tokens
+            logger.info(f"Патчинг применен к sys.modules['{utils_module_name}']")
+        
+        # КРИТИЧНО: Патчим также в page_index, так как он использует "from .utils import *"
+        # Это означает, что функции копируются в пространство имен page_index
+        try:
+            page_index_module_name = None
+            page_index_module = None
+            
+            # Пробуем найти модуль page_index в sys.modules
+            for module_name in list(sys.modules.keys()):
+                if 'page_index' in module_name and 'pageindex' in module_name:
+                    if not module_name.endswith('.page_index_md'):
+                        page_index_module = sys.modules[module_name]
+                        page_index_module_name = module_name
+                        break
+            
+            # Если не нашли, пробуем импортировать
+            if page_index_module is None:
+                try:
+                    from PageIndex.pageindex.page_index import ChatGPT_API as _test
+                    # Если импорт прошел, значит модуль загружен
+                    import PageIndex.pageindex.page_index as page_index_module
+                    page_index_module_name = 'PageIndex.pageindex.page_index'
+                except ImportError:
+                    try:
+                        import pageindex.page_index as page_index_module
+                        page_index_module_name = 'pageindex.page_index'
+                    except ImportError:
+                        pass
+            
+            # Патчим функции в page_index
+            if page_index_module is not None:
+                if hasattr(page_index_module, 'ChatGPT_API'):
+                    page_index_module.ChatGPT_API = patched_ChatGPT_API
+                    logger.info(f"Патчинг ChatGPT_API применен к {page_index_module_name}")
+                if hasattr(page_index_module, 'ChatGPT_API_with_finish_reason'):
+                    page_index_module.ChatGPT_API_with_finish_reason = patched_ChatGPT_API_with_finish_reason
+                    logger.info(f"Патчинг ChatGPT_API_with_finish_reason применен к {page_index_module_name}")
+                if hasattr(page_index_module, 'ChatGPT_API_async'):
+                    page_index_module.ChatGPT_API_async = patched_ChatGPT_API_async
+                    logger.info(f"Патчинг ChatGPT_API_async применен к {page_index_module_name}")
+                if hasattr(page_index_module, 'count_tokens'):
+                    page_index_module.count_tokens = patched_count_tokens
+                    logger.info(f"Патчинг count_tokens применен к {page_index_module_name}")
+        except Exception as e:
+            logger.warning(f"Не удалось патчить page_index модуль: {e}")
+        
+        _patched = True
+        logger.info(f"✅ PageIndex успешно патчен для Ollama (base_url={_ollama_base_url}, model={_ollama_model})")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при патчинге PageIndex: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
 
+
+def get_ollama_settings():
+    """Получить текущие настройки Ollama"""
+    return {
+        "base_url": _ollama_base_url,
+        "model": _ollama_model,
+        "patched": _patched
+    }

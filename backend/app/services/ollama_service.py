@@ -81,3 +81,5 @@ class OllamaService:
         # For now, return default model
         return [self.model]
 
+
+

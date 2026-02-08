@@ -1,18 +1,19 @@
 """
 Document API routes
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+import os
 import logging
-
-logger = logging.getLogger(__name__)
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 from app.database.database import get_db
-from app.models.document import Document, DocumentStatus
 from app.services.document_service import DocumentService
 from app.services.pageindex_service import PageIndexService
-from pydantic import BaseModel
-import asyncio
+from app.models.document import Document, DocumentStatus
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -20,272 +21,211 @@ class DocumentResponse(BaseModel):
     """Document response model"""
     id: int
     filename: str
+    file_path: str
+    index_path: Optional[str]
     status: str
+    error_message: Optional[str]
     created_at: str
-    index_path: str | None = None
+    updated_at: Optional[str]
     
     class Config:
         from_attributes = True
 
-@router.get("", response_model=List[DocumentResponse])
-@router.get("/", response_model=List[DocumentResponse])
-async def get_documents(db: Session = Depends(get_db)):
-    """Get all documents"""
-    try:
-        service = DocumentService(db)
-        documents = service.get_all_documents()
-        logger.info(f"Retrieved {len(documents)} documents")
-        # Convert to response models
-        result = []
-        for doc in documents:
-            result.append(DocumentResponse(
-                id=doc.id,
-                filename=doc.filename,
-                status=doc.status.value if hasattr(doc.status, 'value') else str(doc.status),
-                created_at=doc.created_at.isoformat() if doc.created_at and hasattr(doc.created_at, 'isoformat') else str(doc.created_at) if doc.created_at else "",
-                index_path=doc.index_path,
-                file_path=doc.file_path,
-                error_message=doc.error_message
-            ))
-        return result
-    except Exception as e:
-        logger.error(f"Error getting documents: {e}", exc_info=True)
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error getting documents: {str(e)}")
-
-@router.get("/{document_id}", response_model=DocumentResponse)
-async def get_document(document_id: int, db: Session = Depends(get_db)):
-    """Get document by ID"""
-    try:
-        service = DocumentService(db)
-        document = service.get_document(document_id)
-        if not document:
-            raise HTTPException(status_code=404, detail="Document not found")
-        return DocumentResponse(
-            id=document.id,
-            filename=document.filename,
-            status=document.status.value if hasattr(document.status, 'value') else str(document.status),
-            created_at=document.created_at.isoformat() if document.created_at and hasattr(document.created_at, 'isoformat') else str(document.created_at) if document.created_at else "",
-            index_path=document.index_path,
-            file_path=document.file_path,
-            error_message=document.error_message
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting document {document_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error getting document: {str(e)}")
-
-@router.post("/upload")
+@router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Upload and index a document"""
+    """
+    Загружает и индексирует PDF документ
+    """
     try:
-        logger.info(f"Received upload request for file: {file.filename}")
+        # Проверка типа файла
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Поддерживаются только PDF файлы")
         
-        # Validate file
-        if not file.filename:
-            logger.error("No filename provided")
-            raise HTTPException(status_code=400, detail="No filename provided")
+        logger.info(f"Начало загрузки файла: {file.filename}")
         
-        if not file.filename.endswith('.pdf'):
-            logger.error(f"Invalid file type: {file.filename}")
-            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-        
-        # Read file content
-        logger.info(f"Reading file content: {file.filename}")
-        content = await file.read()
-        logger.info(f"File read, size: {len(content)} bytes")
-        
-        if len(content) == 0:
-            logger.error("File is empty")
-            raise HTTPException(status_code=400, detail="File is empty")
-        
-        logger.info(f"Uploading file: {file.filename}, size: {len(content)} bytes")
-        
-        # Save file
-        service = DocumentService(db)
+        # Сохранение файла с таймаутом
+        document_service = DocumentService(db)
+        import asyncio
         try:
-            file_path = service.save_uploaded_file(content, file.filename)
-            logger.info(f"File saved to: {file_path}")
-        except Exception as e:
-            logger.error(f"Error saving file: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
+            file_content = await asyncio.wait_for(file.read(), timeout=300.0)  # 5 минут на загрузку
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=408, detail="Таймаут загрузки файла. Файл слишком большой или соединение медленное.")
         
-        # Create document record
-        try:
-            document = service.create_document(file.filename, file_path)
-            logger.info(f"Document created with ID: {document.id}")
-        except Exception as e:
-            logger.error(f"Error creating document record: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=f"Error creating document record: {str(e)}")
+        file_size_mb = len(file_content) / 1024 / 1024
+        logger.info(f"Файл загружен: {file.filename}, размер: {file_size_mb:.2f} MB")
         
-        # Start indexing in background
-        try:
-            background_tasks.add_task(index_document_task, document.id, file_path)
-            logger.info(f"Background indexing task added for document {document.id}")
-        except Exception as e:
-            logger.error(f"Error adding background task: {e}", exc_info=True)
-            # Don't fail the upload if background task fails
+        # Проверка размера файла
+        if len(file_content) > settings.MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413, 
+                detail=f"Файл слишком большой. Максимальный размер: {settings.MAX_FILE_SIZE / 1024 / 1024:.0f} MB"
+            )
         
-        return {
-            "id": document.id,
-            "filename": document.filename,
-            "status": document.status.value,
-            "message": "Document uploaded, indexing started"
-        }
+        file_path = document_service.save_uploaded_file(file_content, file.filename)
+        
+        # Создание записи в БД
+        document = document_service.create_document(
+            filename=file.filename,
+            file_path=file_path
+        )
+        
+        # Запуск индексации в фоне
+        background_tasks.add_task(
+            index_document_task,
+            document_id=document.id,
+            file_path=file_path,
+            db=db
+        )
+        
+        logger.info(f"Документ {document.id} загружен, индексация запущена в фоне")
+        
+        return DocumentResponse(
+            id=document.id,
+            filename=document.filename,
+            file_path=document.file_path,
+            index_path=document.index_path,
+            status=document.status.value,
+            error_message=document.error_message,
+            created_at=document.created_at.isoformat() if document.created_at else "",
+            updated_at=document.updated_at.isoformat() if document.updated_at else None
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке документа: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Ошибка при загрузке документа: {str(e)}")
+
+@router.get("/", response_model=List[DocumentResponse])
+async def get_documents(db: Session = Depends(get_db)):
+    """Получить список всех документов"""
+    try:
+        document_service = DocumentService(db)
+        documents = document_service.get_all_documents()
+        
+        return [
+            DocumentResponse(
+                id=doc.id,
+                filename=doc.filename,
+                file_path=doc.file_path,
+                index_path=doc.index_path,
+                status=doc.status.value,
+                error_message=doc.error_message,
+                created_at=doc.created_at.isoformat() if doc.created_at else "",
+                updated_at=doc.updated_at.isoformat() if doc.updated_at else None
+            )
+            for doc in documents
+        ]
+    except Exception as e:
+        logger.error(f"Ошибка при получении документов: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении документов: {str(e)}")
+
+@router.get("/{document_id}", response_model=DocumentResponse)
+async def get_document(document_id: int, db: Session = Depends(get_db)):
+    """Получить документ по ID"""
+    try:
+        document_service = DocumentService(db)
+        document = document_service.get_document(document_id)
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Документ не найден")
+        
+        return DocumentResponse(
+            id=document.id,
+            filename=document.filename,
+            file_path=document.file_path,
+            index_path=document.index_path,
+            status=document.status.value,
+            error_message=document.error_message,
+            created_at=document.created_at.isoformat() if document.created_at else "",
+            updated_at=document.updated_at.isoformat() if document.updated_at else None
+        )
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error uploading document: {e}", exc_info=True)
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Error uploading document: {str(e)}")
-
-async def index_document_task(document_id: int, file_path: str):
-    """Background task for indexing document"""
-    from app.database.database import SessionLocal
-    from app.services.document_service import DocumentService
-    from app.services.pageindex_service import PageIndexService
-    from app.api.routes.websocket import get_connection_manager
-    import traceback
-    import os
-    
-    db = SessionLocal()
-    manager = get_connection_manager()
-    
-    try:
-        logger.info(f"Starting indexing task for document {document_id}, file: {file_path}")
-        
-        # Check if file exists
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
-        
-        file_size = os.path.getsize(file_path)
-        logger.info(f"File size: {file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
-        
-        service = DocumentService(db)
-        
-        # Update status to indexing
-        service.update_document_status(document_id, DocumentStatus.INDEXING)
-        logger.info(f"Document {document_id} status updated to INDEXING")
-        
-        # Notify: indexing started
-        try:
-            await manager.broadcast_to_document(document_id, {
-                "type": "status_update",
-                "status": "indexing",
-                "message": "Индексация началась..."
-            })
-        except Exception as ws_error:
-            logger.warning(f"WebSocket notification failed: {ws_error}")
-        
-        # Initialize PageIndex service
-        try:
-            logger.info("Initializing PageIndexService...")
-            pageindex_service = PageIndexService()
-            logger.info("PageIndexService initialized successfully")
-        except Exception as e:
-            error_msg = f"Failed to initialize PageIndexService: {e}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            raise Exception(error_msg)
-        
-        # Notify: processing
-        try:
-            await manager.broadcast_to_document(document_id, {
-                "type": "status_update",
-                "status": "indexing",
-                "message": "Обработка документа..."
-            })
-        except Exception as ws_error:
-            logger.warning(f"WebSocket notification failed: {ws_error}")
-        
-        # Index document
-        logger.info(f"Starting PageIndex indexing for: {file_path}")
-        logger.info(f"This may take a while for large files...")
-        try:
-            result = await pageindex_service.index_document(file_path)
-            logger.info(f"Indexing completed successfully, index saved to: {result['index_path']}")
-        except Exception as e:
-            error_msg = f"PageIndex indexing failed: {e}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            raise Exception(error_msg)
-        
-        # Notify: indexing complete
-        try:
-            await manager.broadcast_to_document(document_id, {
-                "type": "status_update",
-                "status": "ready",
-                "message": "Индексация завершена",
-                "index_path": result["index_path"]
-            })
-        except Exception as ws_error:
-            logger.warning(f"WebSocket notification failed: {ws_error}")
-        
-        # Update status to ready
-        service.update_document_status(
-            document_id,
-            DocumentStatus.READY,
-            index_path=result["index_path"]
-        )
-        logger.info(f"Document {document_id} status updated to READY")
-        
-    except Exception as e:
-        error_msg = str(e)
-        error_trace = traceback.format_exc()
-        logger.error(f"Indexing failed for document {document_id}: {error_msg}")
-        logger.error(f"Traceback: {error_trace}")
-        
-        # Notify: error
-        try:
-            await manager.broadcast_to_document(document_id, {
-                "type": "status_update",
-                "status": "error",
-                "message": f"Ошибка индексации: {error_msg}"
-            })
-        except Exception as ws_error:
-            logger.warning(f"WebSocket notification failed: {ws_error}")
-        
-        # Update status to error
-        try:
-            service = DocumentService(db)
-            service.update_document_status(
-                document_id,
-                DocumentStatus.ERROR,
-                error_message=error_msg
-            )
-        except Exception as db_error:
-            logger.error(f"Failed to update document status to ERROR: {db_error}")
-    finally:
-        db.close()
-        logger.info(f"Indexing task completed for document {document_id}")
-
-@router.get("/{document_id}/status")
-async def get_document_status(document_id: int, db: Session = Depends(get_db)):
-    """Get document indexing status"""
-    service = DocumentService(db)
-    document = service.get_document(document_id)
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-    
-    return {
-        "id": document.id,
-        "status": document.status.value,
-        "error_message": document.error_message
-    }
+        logger.error(f"Ошибка при получении документа: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении документа: {str(e)}")
 
 @router.delete("/{document_id}")
 async def delete_document(document_id: int, db: Session = Depends(get_db)):
-    """Delete a document"""
-    service = DocumentService(db)
-    success = service.delete_document(document_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return {"message": "Document deleted successfully"}
+    """Удалить документ"""
+    try:
+        document_service = DocumentService(db)
+        success = document_service.delete_document(document_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Документ не найден")
+        
+        return {"message": "Документ удален"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при удалении документа: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении документа: {str(e)}")
 
+def index_document_task(document_id: int, file_path: str, db: Session):
+    """
+    Фоновая задача для индексации документа
+    """
+    from app.database.database import SessionLocal
+    
+    # Создаем новую сессию БД для фоновой задачи
+    db_session = SessionLocal()
+    document_service = DocumentService(db_session)
+    pageindex_service = PageIndexService()
+    
+    try:
+        logger.info(f"Начало индексации документа {document_id}: {file_path}")
+        
+        # Обновляем статус на INDEXING
+        document_service.update_document_status(
+            document_id=document_id,
+            status=DocumentStatus.INDEXING
+        )
+        
+        # Индексируем документ (это может занять много времени для больших файлов)
+        import time
+        start_time = time.time()
+        logger.info(f"Начало индексации документа {document_id}. Это может занять несколько минут для больших файлов...")
+        
+        result = pageindex_service.index_document(
+            pdf_path=file_path,
+            document_id=document_id
+        )
+        
+        elapsed_time = time.time() - start_time
+        logger.info(f"Индексация документа {document_id} заняла {elapsed_time:.2f} секунд ({elapsed_time/60:.2f} минут)")
+        
+        # Обновляем статус на READY
+        document_service.update_document_status(
+            document_id=document_id,
+            status=DocumentStatus.READY,
+            index_path=result["index_path"]
+        )
+        
+        logger.info(f"Индексация документа {document_id} завершена успешно")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при индексации документа {document_id}: {e}")
+        import traceback
+        error_msg = f"PageIndex indexing failed: {str(e)}"
+        logger.error(traceback.format_exc())
+        
+        # Обновляем статус на ERROR
+        try:
+            document_service.update_document_status(
+                document_id=document_id,
+                status=DocumentStatus.ERROR,
+                error_message=error_msg
+            )
+        except Exception as update_error:
+            logger.error(f"Ошибка при обновлении статуса документа: {update_error}")
+        
+        raise Exception(error_msg)
+    
+    finally:
+        db_session.close()

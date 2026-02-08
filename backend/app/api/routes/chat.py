@@ -125,3 +125,5 @@ async def delete_chat(chat_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Chat not found")
     return {"message": "Chat deleted successfully"}
 
+
+

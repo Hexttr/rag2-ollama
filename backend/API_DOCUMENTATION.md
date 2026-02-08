@@ -241,3 +241,5 @@ curl -X POST http://localhost:8000/api/chats/1/query \
 
 *Документация обновлена после завершения Этапов 3-4*
 
+
+

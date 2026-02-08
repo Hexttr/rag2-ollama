@@ -46,3 +46,5 @@ Get-Content backend/logs/backend.log -Tail 50
 
 *Теперь я могу автоматически читать логи и исправлять ошибки!*
 
+
+

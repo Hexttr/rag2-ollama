@@ -1,124 +1,170 @@
 """
-PageIndex service for document indexing
+PageIndex service for document indexing and search
 """
 import os
 import json
 import sys
-from pathlib import Path
-from typing import Dict, Optional
-from app.core.config import settings
 import logging
-
-# Add paths for PageIndex and pageindex_ollama
-project_root = Path(__file__).parent.parent.parent.parent
-pageindex_path = project_root / "PageIndex"
-pageindex_ollama_path = project_root / "pageindex_ollama.py"
-
-# Add paths in correct order
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-if str(pageindex_path) not in sys.path:
-    sys.path.insert(0, str(pageindex_path))
-
-# Log paths for debugging
-logger_temp = logging.getLogger(__name__)
-try:
-    logger_temp.info(f"Project root: {project_root}")
-    logger_temp.info(f"PageIndex path: {pageindex_path}")
-    logger_temp.info(f"PageIndex exists: {pageindex_path.exists()}")
-    logger_temp.info(f"pageindex_ollama exists: {pageindex_ollama_path.exists()}")
-except:
-    pass  # Don't fail if logging fails
-
-try:
-    # First import pageindex_ollama (it's in project root)
-    import pageindex_ollama
-    patch_pageindex_for_ollama = pageindex_ollama.patch_pageindex_for_ollama
-    check_ollama_connection = pageindex_ollama.check_ollama_connection
-    
-    # IMPORTANT: Patch PageIndex BEFORE importing it!
-    # This ensures that when PageIndex imports utils, it gets the patched version
-    patch_result = patch_pageindex_for_ollama()
-    if not patch_result:
-        logger_temp.warning("Failed to patch PageIndex for Ollama, but continuing...")
-    else:
-        logger_temp.info("PageIndex patched for Ollama (before import)")
-    
-    # Then import PageIndex modules (they will use patched functions)
-    from pageindex.page_index import page_index_main
-    from pageindex.utils import config
-    
-    # CRITICAL: Re-patch after import because page_index uses "from .utils import *"
-    # which copies functions to its namespace, so we need to patch both
-    patch_result2 = patch_pageindex_for_ollama()
-    if patch_result2:
-        logger_temp.info("PageIndex re-patched after import (for page_index module)")
-    
-    PAGEINDEX_AVAILABLE = True
-    logger_temp.info("PageIndex modules imported successfully")
-except ImportError as e:
-    logging.error(f"Failed to import PageIndex: {e}")
-    import traceback
-    logging.error(traceback.format_exc())
-    # Fallback - will be handled in __init__
-    patch_pageindex_for_ollama = None
-    check_ollama_connection = None
-    page_index_main = None
-    config = None
-    PAGEINDEX_AVAILABLE = False
+from pathlib import Path
+from typing import Dict, Optional, Any
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Добавляем путь к корню проекта в sys.path
+project_root = Path(__file__).parent.parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# Патчим PageIndex для Ollama ПЕРЕД импортом
+try:
+    from pageindex_ollama import patch_pageindex_for_ollama, check_ollama_connection
+    
+    # Проверяем и патчим
+    if not patch_pageindex_for_ollama(
+        base_url=settings.OLLAMA_BASE_URL,
+        model=settings.OLLAMA_MODEL
+    ):
+        logger.error("Не удалось настроить PageIndex для Ollama")
+except ImportError as e:
+    logger.error(f"Не удалось импортировать pageindex_ollama: {e}")
+    raise
+
+# Теперь импортируем PageIndex (уже с патчем)
+try:
+    # Пытаемся импортировать из локального PageIndex
+    from PageIndex.pageindex import page_index_main, config
+    # КРИТИЧНО: Патчим также page_index модуль, так как он использует "from .utils import *"
+    try:
+        import PageIndex.pageindex.page_index as page_index_module
+        from pageindex_ollama import get_ollama_settings
+        ollama_settings = get_ollama_settings()
+        if ollama_settings.get('patched'):
+            # Применяем патчинг к page_index модулю
+            import openai
+            ollama_client = openai.OpenAI(
+                api_key="ollama",
+                base_url=ollama_settings['base_url']
+            )
+            ollama_async_client = openai.AsyncOpenAI(
+                api_key="ollama",
+                base_url=ollama_settings['base_url']
+            )
+            
+            # Патчим функции в page_index
+            def patched_ChatGPT_API(model=None, prompt=None, api_key=None, chat_history=None):
+                max_retries = 10
+                model = model or ollama_settings['model']
+                for i in range(max_retries):
+                    try:
+                        if chat_history:
+                            messages = chat_history.copy()
+                            messages.append({"role": "user", "content": prompt})
+                        else:
+                            messages = [{"role": "user", "content": prompt}]
+                        response = ollama_client.chat.completions.create(
+                            model=model, messages=messages, temperature=0
+                        )
+                        return response.choices[0].message.content
+                    except Exception as e:
+                        if i < max_retries - 1:
+                            import time
+                            time.sleep(1)
+                        else:
+                            return "Error"
+            
+            async def patched_ChatGPT_API_async(model=None, prompt=None, api_key=None):
+                max_retries = 10
+                model = model or ollama_settings['model']
+                messages = [{"role": "user", "content": prompt}]
+                for i in range(max_retries):
+                    try:
+                        response = await ollama_async_client.chat.completions.create(
+                            model=model, messages=messages, temperature=0
+                        )
+                        return response.choices[0].message.content
+                    except Exception as e:
+                        if i < max_retries - 1:
+                            import asyncio
+                            await asyncio.sleep(1)
+                        else:
+                            return "Error"
+            
+            def patched_ChatGPT_API_with_finish_reason(model=None, prompt=None, api_key=None, chat_history=None):
+                max_retries = 10
+                model = model or ollama_settings['model']
+                for i in range(max_retries):
+                    try:
+                        if chat_history:
+                            messages = chat_history.copy()
+                            messages.append({"role": "user", "content": prompt})
+                        else:
+                            messages = [{"role": "user", "content": prompt}]
+                        response = ollama_client.chat.completions.create(
+                            model=model, messages=messages, temperature=0
+                        )
+                        finish_reason = response.choices[0].finish_reason
+                        if finish_reason == "length":
+                            return response.choices[0].message.content, "max_output_reached"
+                        else:
+                            return response.choices[0].message.content, "finished"
+                    except Exception as e:
+                        if i < max_retries - 1:
+                            import time
+                            time.sleep(1)
+                        else:
+                            return "Error", "error"
+            
+            # Применяем патчинг
+            page_index_module.ChatGPT_API = patched_ChatGPT_API
+            page_index_module.ChatGPT_API_async = patched_ChatGPT_API_async
+            page_index_module.ChatGPT_API_with_finish_reason = patched_ChatGPT_API_with_finish_reason
+            logger.info("Патчинг применен к page_index модулю")
+    except Exception as e:
+        logger.warning(f"Не удалось патчить page_index модуль: {e}")
+        
+except ImportError:
+    # Если не получилось, пробуем напрямую
+    try:
+        from pageindex import page_index_main, config
+    except ImportError as e:
+        logger.error(f"Не удалось импортировать PageIndex: {e}")
+        raise
+
 class PageIndexService:
-    """Service for document indexing with PageIndex and Ollama"""
+    """Service for PageIndex document indexing and search"""
     
     def __init__(self):
-        # Patch is already applied at module level, but verify it's still patched
-        if not PAGEINDEX_AVAILABLE or patch_pageindex_for_ollama is None:
-            error_msg = "PageIndex modules not available. Make sure PageIndex is in the project root."
-            logger.error(error_msg)
-            raise ImportError(error_msg)
+        self.index_dir = Path(settings.INDEX_DIR)
+        self.index_dir.mkdir(parents=True, exist_ok=True)
         
-        try:
-            if check_ollama_connection and not check_ollama_connection():
-                logger.warning("Ollama connection check failed, but continuing...")
-            
-            # Re-apply patch to ensure it's still active (in case of module reload)
-            patch_result = patch_pageindex_for_ollama()
-            if patch_result:
-                logger.info("PageIndex patched for Ollama (verified)")
-            else:
-                logger.warning("Failed to verify patch, but continuing...")
-        except Exception as e:
-            logger.error(f"Error patching PageIndex: {e}")
-            raise
+        # Проверяем подключение к Ollama
+        if not check_ollama_connection(settings.OLLAMA_BASE_URL):
+            logger.warning("⚠️  Ollama недоступен! Убедитесь, что Ollama запущен.")
     
-    async def index_document(
+    def index_document(
         self,
         pdf_path: str,
-        output_dir: Optional[str] = None
-    ) -> Dict:
+        document_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
-        Index a PDF document using PageIndex
+        Индексирует PDF документ используя PageIndex
         
         Args:
-            pdf_path: Path to PDF file
-            output_dir: Directory to save index (default: settings.INDEX_DIR)
+            pdf_path: Путь к PDF файлу
+            document_id: ID документа (опционально, для имени файла индекса)
         
         Returns:
-            Dictionary with index structure
+            Словарь с результатами индексации
         """
         try:
-            # Check if file exists
-            if not os.path.exists(pdf_path):
-                raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+            import os
+            file_size_mb = os.path.getsize(pdf_path) / 1024 / 1024
+            logger.info(f"Начало индексации документа: {pdf_path}")
+            logger.info(f"Размер файла: {file_size_mb:.2f} MB")
+            logger.info(f"Используемая модель Ollama: {settings.OLLAMA_MODEL}")
             
-            output_dir = output_dir or settings.INDEX_DIR
-            os.makedirs(output_dir, exist_ok=True)
-            
-            logger.info(f"Configuring PageIndex for: {pdf_path}")
-            
-            # Configure PageIndex options
+            # Настройка опций PageIndex
             opt = config(
                 model=settings.OLLAMA_MODEL,
                 toc_check_page_num=20,
@@ -130,240 +176,84 @@ class PageIndexService:
                 if_add_node_text='no'
             )
             
-            logger.info(f"Starting PageIndex indexing for: {pdf_path}")
-            logger.info(f"Model: {settings.OLLAMA_MODEL}")
-            logger.info(f"Max pages per node: {settings.PAGEINDEX_MAX_PAGES_PER_NODE}")
+            logger.info("Настройки PageIndex применены, начинаю индексацию...")
+            logger.info("ВНИМАНИЕ: Индексация больших файлов может занять 10-30 минут или больше!")
             
-            # Index document (this is synchronous, but we're in async function)
-            # Run in executor to avoid blocking
-            # IMPORTANT: Re-apply patch in the executor thread to ensure it's active
-            import asyncio
-            loop = asyncio.get_event_loop()
+            # Индексируем документ
+            import time
+            start_time = time.time()
+            result = page_index_main(pdf_path, opt)
+            elapsed_time = time.time() - start_time
+            logger.info(f"Индексация завершена за {elapsed_time:.2f} секунд ({elapsed_time/60:.2f} минут)")
             
-            def _index_with_patch(pdf_path, opt):
-                """Wrapper that ensures patch is applied in executor thread"""
-                # Re-apply patch in this thread to ensure it's active
-                # This is critical because executor runs in a separate thread
-                try:
-                    # Re-import and patch in this thread
-                    import sys
-                    from pathlib import Path
-                    project_root = Path(__file__).parent.parent.parent.parent
-                    if str(project_root) not in sys.path:
-                        sys.path.insert(0, str(project_root))
-                    if str(project_root / "PageIndex") not in sys.path:
-                        sys.path.insert(0, str(project_root / "PageIndex"))
-                    
-                    # Import and patch
-                    import pageindex_ollama
-                    patch_result = pageindex_ollama.patch_pageindex_for_ollama()
-                    if patch_result:
-                        logger.info("Patch re-applied in executor thread")
-                    else:
-                        logger.warning("Failed to re-apply patch in executor thread")
-                    
-                    # Verify patch
-                    from pageindex import utils
-                    if utils.ChatGPT_API is not pageindex_ollama.ChatGPT_API_ollama:
-                        logger.error("Patch verification failed in executor thread!")
-                        logger.error(f"Expected: {pageindex_ollama.ChatGPT_API_ollama}")
-                        logger.error(f"Got: {utils.ChatGPT_API}")
-                    else:
-                        logger.info("Patch verified successfully in executor thread")
-                    
-                    # Also patch page_index if it's imported
-                    try:
-                        from pageindex import page_index
-                        page_index.ChatGPT_API = pageindex_ollama.ChatGPT_API_ollama
-                        page_index.ChatGPT_API_async = pageindex_ollama.ChatGPT_API_async_ollama
-                        page_index.ChatGPT_API_with_finish_reason = pageindex_ollama.ChatGPT_API_with_finish_reason_ollama
-                        logger.info("page_index module patched in executor thread")
-                    except ImportError:
-                        pass
-                        
-                except Exception as e:
-                    logger.error(f"Error re-applying patch in executor: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                
-                # Now run indexing
-                return page_index_main(pdf_path, opt)
+            # Сохраняем индекс
+            if document_id:
+                index_filename = f"document_{document_id}_index.json"
+            else:
+                pdf_name = Path(pdf_path).stem
+                index_filename = f"{pdf_name}_index.json"
             
-            result = await loop.run_in_executor(None, _index_with_patch, pdf_path, opt)
-            
-            logger.info(f"Indexing completed, saving index...")
-            
-            # Save index to file
-            pdf_name = Path(pdf_path).stem
-            index_path = os.path.join(output_dir, f"{pdf_name}_structure.json")
+            index_path = self.index_dir / index_filename
             
             with open(index_path, 'w', encoding='utf-8') as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
             
-            logger.info(f"Index saved to: {index_path}")
+            logger.info(f"Индексация завершена. Индекс сохранен: {index_path}")
             
             return {
-                "index_path": index_path,
+                "success": True,
+                "index_path": str(index_path),
                 "structure": result
             }
             
         except Exception as e:
-            logger.error(f"Indexing failed: {e}")
+            logger.error(f"Ошибка при индексации документа: {e}")
             import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(traceback.format_exc())
             raise
     
-    def load_index(self, index_path: str) -> Dict:
-        """Load index from file"""
+    def load_index(self, index_path: str) -> Dict[str, Any]:
+        """
+        Загружает индекс из файла
+        
+        Args:
+            index_path: Путь к файлу индекса
+        
+        Returns:
+            Словарь с данными индекса
+        """
         try:
             with open(index_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            logger.error(f"Failed to load index: {e}")
+            logger.error(f"Ошибка при загрузке индекса: {e}")
             raise
     
     async def search_tree(
         self,
         index_path: str,
-        query: str,
-        max_nodes: int = 5
-    ) -> Dict:
+        query: str
+    ) -> Dict[str, Any]:
         """
-        Search through document tree using reasoning
+        Поиск в дереве документа (упрощенная версия)
         
         Args:
-            index_path: Path to index file
-            query: Search query
-            max_nodes: Maximum number of nodes to return
+            index_path: Путь к файлу индекса
+            query: Поисковый запрос
         
         Returns:
-            Dictionary with relevant nodes and reasoning
+            Результаты поиска
         """
-        from app.services.ollama_service import OllamaService
-        
-        index_data = self.load_index(index_path)
-        ollama_service = OllamaService()
-        
-        # Create tree summary for LLM
-        tree_summary = self._create_tree_summary(index_data.get("structure", []))
-        
-        # Reasoning-based search prompt
-        prompt = f"""Вы - эксперт по анализу документов. Ваша задача - найти наиболее релевантные разделы документа для ответа на вопрос пользователя.
-
-Структура документа:
-{json.dumps(tree_summary, indent=2, ensure_ascii=False)}
-
-Вопрос пользователя: {query}
-
-Проанализируйте структуру документа и определите, какие разделы наиболее релевантны для ответа на вопрос.
-
-Верните JSON в следующем формате:
-{{
-    "reasoning": "Ваше рассуждение о том, почему выбранные разделы релевантны",
-    "relevant_nodes": [
-        {{
-            "node_id": "ID узла",
-            "title": "Название раздела",
-            "relevance_score": "высокая/средняя/низкая",
-            "reason": "Почему этот раздел релевантен"
-        }}
-    ]
-}}
-
-Выберите до {max_nodes} наиболее релевантных узлов."""
-        
         try:
-            response = await ollama_service.generate_response(prompt)
+            index_data = self.load_index(index_path)
             
-            # Parse JSON response
-            import re
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group())
-            else:
-                # Fallback if JSON parsing fails
-                result = {
-                    "reasoning": response[:200],
-                    "relevant_nodes": []
-                }
-            
-            # Find actual nodes in structure
-            relevant_nodes = []
-            if "relevant_nodes" in result:
-                node_ids = [node.get("node_id") for node in result["relevant_nodes"]]
-                relevant_nodes = self._find_nodes_by_ids(
-                    index_data.get("structure", []),
-                    node_ids
-                )
-            
+            # Упрощенный поиск - в будущем можно улучшить
+            # с использованием tree search из PageIndex
             return {
                 "query": query,
-                "reasoning": result.get("reasoning", ""),
-                "nodes": relevant_nodes,
-                "index": index_data
+                "index": index_data,
+                "results": []  # TODO: Реализовать tree search
             }
         except Exception as e:
-            logger.error(f"Tree search failed: {e}")
-            # Fallback: return full structure
-            return {
-                "query": query,
-                "reasoning": "Ошибка при поиске, возвращена полная структура",
-                "nodes": [],
-                "index": index_data
-            }
-    
-    def _create_tree_summary(self, tree: list, max_depth: int = 3) -> list:
-        """Create simplified tree representation for LLM"""
-        summary = []
-        
-        def traverse(node, depth=0):
-            if depth > max_depth:
-                return
-            
-            if isinstance(node, dict):
-                node_info = {
-                    "node_id": node.get("node_id", ""),
-                    "title": node.get("title", ""),
-                    "summary": node.get("summary", "")[:200] if node.get("summary") else "",
-                    "start_index": node.get("start_index", 0),
-                    "end_index": node.get("end_index", 0)
-                }
-                
-                if "nodes" in node and node["nodes"]:
-                    node_info["children"] = []
-                    for child in node["nodes"]:
-                        child_info = traverse(child, depth + 1)
-                        if child_info:
-                            node_info["children"].append({
-                                "node_id": child.get("node_id", ""),
-                                "title": child.get("title", ""),
-                                "summary": child.get("summary", "")[:200] if child.get("summary") else ""
-                            })
-                
-                return node_info
-            return None
-        
-        for root_node in tree:
-            node_info = traverse(root_node)
-            if node_info:
-                summary.append(node_info)
-        
-        return summary
-    
-    def _find_nodes_by_ids(self, tree: list, node_ids: list) -> list:
-        """Find nodes by their IDs in the tree"""
-        found_nodes = []
-        
-        def search(node):
-            if isinstance(node, dict):
-                if node.get("node_id") in node_ids:
-                    found_nodes.append(node)
-                if "nodes" in node:
-                    for child in node["nodes"]:
-                        search(child)
-        
-        for root_node in tree:
-            search(root_node)
-        
-        return found_nodes
-
+            logger.error(f"Ошибка при поиске: {e}")
+            raise

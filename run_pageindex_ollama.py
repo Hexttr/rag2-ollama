@@ -26,7 +26,10 @@ if not patch_pageindex_for_ollama():
     sys.exit(1)
 
 # Теперь импортируем функции PageIndex (уже с патчем)
-from pageindex import page_index_main, config
+try:
+    from PageIndex.pageindex import page_index_main, config
+except ImportError:
+    from pageindex import page_index_main, config
 
 if __name__ == "__main__":
     # Настройка аргументов командной строки
@@ -109,4 +112,6 @@ if __name__ == "__main__":
         print("⚠️  Поддержка Markdown через Ollama пока не реализована")
         print("   Используйте оригинальный run_pageindex.py с OpenAI API")
         sys.exit(1)
+
+
 
