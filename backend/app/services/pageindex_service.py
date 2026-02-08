@@ -136,9 +136,26 @@ class PageIndexService:
             
             # Index document (this is synchronous, but we're in async function)
             # Run in executor to avoid blocking
+            # IMPORTANT: Re-apply patch in the executor thread to ensure it's active
             import asyncio
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, page_index_main, pdf_path, opt)
+            
+            def _index_with_patch(pdf_path, opt):
+                """Wrapper that ensures patch is applied in executor thread"""
+                # Re-apply patch in this thread to ensure it's active
+                try:
+                    patch_result = patch_pageindex_for_ollama()
+                    if patch_result:
+                        logger.info("Patch re-applied in executor thread")
+                    else:
+                        logger.warning("Failed to re-apply patch in executor thread")
+                except Exception as e:
+                    logger.error(f"Error re-applying patch in executor: {e}")
+                
+                # Now run indexing
+                return page_index_main(pdf_path, opt)
+            
+            result = await loop.run_in_executor(None, _index_with_patch, pdf_path, opt)
             
             logger.info(f"Indexing completed, saving index...")
             

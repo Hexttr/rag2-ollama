@@ -60,10 +60,14 @@ def ChatGPT_API_ollama(model=None, prompt=None, api_key=None, chat_history=None)
         api_key = "ollama-dummy-key"
     
     max_retries = 10
-    client = openai.OpenAI(
-        api_key=api_key,  # Фиктивный ключ для Ollama
-        base_url=OLLAMA_BASE_URL
-    )
+    try:
+        client = openai.OpenAI(
+            api_key=api_key,  # Фиктивный ключ для Ollama
+            base_url=OLLAMA_BASE_URL
+        )
+    except Exception as e:
+        logging.error(f"Error creating OpenAI client for Ollama: {e}")
+        raise
     
     for i in range(max_retries):
         try:
