@@ -9,11 +9,23 @@ from typing import Dict, Optional
 from app.core.config import settings
 import logging
 
-# Add parent directory to path for pageindex_ollama
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+# Add paths for PageIndex and pageindex_ollama
+project_root = Path(__file__).parent.parent.parent.parent
+pageindex_path = project_root / "PageIndex"
+sys.path.insert(0, str(pageindex_path))
+sys.path.insert(0, str(project_root))
 
-from pageindex_ollama import patch_pageindex_for_ollama, check_ollama_connection
-from pageindex import page_index_main, config
+try:
+    from pageindex_ollama import patch_pageindex_for_ollama, check_ollama_connection
+    from pageindex.page_index import page_index_main
+    from pageindex.utils import config
+except ImportError as e:
+    logging.error(f"Failed to import PageIndex: {e}")
+    # Fallback - will be handled in __init__
+    patch_pageindex_for_ollama = None
+    check_ollama_connection = None
+    page_index_main = None
+    config = None
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +34,10 @@ class PageIndexService:
     
     def __init__(self):
         # Patch PageIndex for Ollama
-        if not check_ollama_connection():
+        if patch_pageindex_for_ollama is None:
+            raise ImportError("PageIndex modules not available. Make sure PageIndex is in the project root.")
+        
+        if check_ollama_connection and not check_ollama_connection():
             logger.warning("Ollama connection check failed, but continuing...")
         
         patch_pageindex_for_ollama()
