@@ -12,16 +12,36 @@ import logging
 # Add paths for PageIndex and pageindex_ollama
 project_root = Path(__file__).parent.parent.parent.parent
 pageindex_path = project_root / "PageIndex"
-sys.path.insert(0, str(pageindex_path))
-sys.path.insert(0, str(project_root))
+pageindex_ollama_path = project_root / "pageindex_ollama.py"
+
+# Add paths in correct order
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+if str(pageindex_path) not in sys.path:
+    sys.path.insert(0, str(pageindex_path))
+
+logger_temp = logging.getLogger(__name__)
+logger_temp.info(f"Project root: {project_root}")
+logger_temp.info(f"PageIndex path: {pageindex_path}")
+logger_temp.info(f"PageIndex exists: {pageindex_path.exists()}")
+logger_temp.info(f"pageindex_ollama exists: {pageindex_ollama_path.exists()}")
 
 try:
-    from pageindex_ollama import patch_pageindex_for_ollama, check_ollama_connection
+    # First import pageindex_ollama (it's in project root)
+    import pageindex_ollama
+    patch_pageindex_for_ollama = pageindex_ollama.patch_pageindex_for_ollama
+    check_ollama_connection = pageindex_ollama.check_ollama_connection
+    
+    # Then import PageIndex modules
     from pageindex.page_index import page_index_main
     from pageindex.utils import config
+    
     PAGEINDEX_AVAILABLE = True
+    logger_temp.info("PageIndex modules imported successfully")
 except ImportError as e:
-    logging.warning(f"Failed to import PageIndex: {e}")
+    logging.error(f"Failed to import PageIndex: {e}")
+    import traceback
+    logging.error(traceback.format_exc())
     # Fallback - will be handled in __init__
     patch_pageindex_for_ollama = None
     check_ollama_connection = None
