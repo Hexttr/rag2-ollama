@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import Header from './components/Layout/Header'
 import Sidebar from './components/Layout/Sidebar'
-import DocumentList from './components/Documents/DocumentList'
 import ChatWindow from './components/Chat/ChatWindow'
 
 function App() {

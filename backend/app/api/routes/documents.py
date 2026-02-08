@@ -50,29 +50,42 @@ async def upload_document(
     db: Session = Depends(get_db)
 ):
     """Upload and index a document"""
-    # Validate file
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-    
-    # Read file content
-    content = await file.read()
-    
-    # Save file
-    service = DocumentService(db)
-    file_path = service.save_uploaded_file(content, file.filename)
-    
-    # Create document record
-    document = service.create_document(file.filename, file_path)
-    
-    # Start indexing in background
-    background_tasks.add_task(index_document_task, document.id, file_path, db)
-    
-    return {
-        "id": document.id,
-        "filename": document.filename,
-        "status": document.status.value,
-        "message": "Document uploaded, indexing started"
-    }
+    try:
+        # Validate file
+        if not file.filename or not file.filename.endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+        
+        # Read file content
+        content = await file.read()
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="File is empty")
+        
+        logger.info(f"Uploading file: {file.filename}, size: {len(content)} bytes")
+        
+        # Save file
+        service = DocumentService(db)
+        file_path = service.save_uploaded_file(content, file.filename)
+        logger.info(f"File saved to: {file_path}")
+        
+        # Create document record
+        document = service.create_document(file.filename, file_path)
+        logger.info(f"Document created with ID: {document.id}")
+        
+        # Start indexing in background
+        background_tasks.add_task(index_document_task, document.id, file_path)
+        
+        return {
+            "id": document.id,
+            "filename": document.filename,
+            "status": document.status.value,
+            "message": "Document uploaded, indexing started"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading document: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error uploading document: {str(e)}")
 
 async def index_document_task(document_id: int, file_path: str):
     """Background task for indexing document"""
@@ -80,41 +93,63 @@ async def index_document_task(document_id: int, file_path: str):
     from app.services.document_service import DocumentService
     from app.services.pageindex_service import PageIndexService
     from app.api.routes.websocket import get_connection_manager
+    import traceback
     
     db = SessionLocal()
     manager = get_connection_manager()
     
     try:
-        service = DocumentService(db)
-        pageindex_service = PageIndexService()
+        logger.info(f"Starting indexing task for document {document_id}, file: {file_path}")
         
-        # Notify: indexing started
-        await manager.broadcast_to_document(document_id, {
-            "type": "status_update",
-            "status": "indexing",
-            "message": "Индексация началась..."
-        })
+        service = DocumentService(db)
         
         # Update status to indexing
         service.update_document_status(document_id, DocumentStatus.INDEXING)
+        logger.info(f"Document {document_id} status updated to INDEXING")
+        
+        # Notify: indexing started
+        try:
+            await manager.broadcast_to_document(document_id, {
+                "type": "status_update",
+                "status": "indexing",
+                "message": "Индексация началась..."
+            })
+        except Exception as ws_error:
+            logger.warning(f"WebSocket notification failed: {ws_error}")
+        
+        # Initialize PageIndex service
+        try:
+            pageindex_service = PageIndexService()
+            logger.info("PageIndexService initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize PageIndexService: {e}")
+            raise
         
         # Notify: processing
-        await manager.broadcast_to_document(document_id, {
-            "type": "status_update",
-            "status": "indexing",
-            "message": "Обработка документа..."
-        })
+        try:
+            await manager.broadcast_to_document(document_id, {
+                "type": "status_update",
+                "status": "indexing",
+                "message": "Обработка документа..."
+            })
+        except Exception as ws_error:
+            logger.warning(f"WebSocket notification failed: {ws_error}")
         
         # Index document
+        logger.info(f"Starting PageIndex indexing for: {file_path}")
         result = await pageindex_service.index_document(file_path)
+        logger.info(f"Indexing completed, index saved to: {result['index_path']}")
         
         # Notify: indexing complete
-        await manager.broadcast_to_document(document_id, {
-            "type": "status_update",
-            "status": "ready",
-            "message": "Индексация завершена",
-            "index_path": result["index_path"]
-        })
+        try:
+            await manager.broadcast_to_document(document_id, {
+                "type": "status_update",
+                "status": "ready",
+                "message": "Индексация завершена",
+                "index_path": result["index_path"]
+            })
+        except Exception as ws_error:
+            logger.warning(f"WebSocket notification failed: {ws_error}")
         
         # Update status to ready
         service.update_document_status(
@@ -122,27 +157,37 @@ async def index_document_task(document_id: int, file_path: str):
             DocumentStatus.READY,
             index_path=result["index_path"]
         )
+        logger.info(f"Document {document_id} status updated to READY")
         
     except Exception as e:
         error_msg = str(e)
+        error_trace = traceback.format_exc()
         logger.error(f"Indexing failed for document {document_id}: {error_msg}")
+        logger.error(f"Traceback: {error_trace}")
         
         # Notify: error
-        await manager.broadcast_to_document(document_id, {
-            "type": "status_update",
-            "status": "error",
-            "message": f"Ошибка индексации: {error_msg}"
-        })
+        try:
+            await manager.broadcast_to_document(document_id, {
+                "type": "status_update",
+                "status": "error",
+                "message": f"Ошибка индексации: {error_msg}"
+            })
+        except Exception as ws_error:
+            logger.warning(f"WebSocket notification failed: {ws_error}")
         
         # Update status to error
-        service = DocumentService(db)
-        service.update_document_status(
-            document_id,
-            DocumentStatus.ERROR,
-            error_message=error_msg
-        )
+        try:
+            service = DocumentService(db)
+            service.update_document_status(
+                document_id,
+                DocumentStatus.ERROR,
+                error_message=error_msg
+            )
+        except Exception as db_error:
+            logger.error(f"Failed to update document status to ERROR: {db_error}")
     finally:
         db.close()
+        logger.info(f"Indexing task completed for document {document_id}")
 
 @router.get("/{document_id}/status")
 async def get_document_status(document_id: int, db: Session = Depends(get_db)):

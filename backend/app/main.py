@@ -1,11 +1,19 @@
 """
 FastAPI main application
 """
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.database.database import init_db
 from app.api.routes import documents, health
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="PageIndex Chat API",
@@ -37,8 +45,13 @@ app.include_router(websocket.router)
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup"""
-    init_db()
-    print("Database initialized")
+    try:
+        init_db()
+        print("✅ Database initialized")
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
+        import traceback
+        traceback.print_exc()
 
 @app.get("/")
 async def root():

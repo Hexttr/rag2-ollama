@@ -10,14 +10,29 @@ const DocumentUpload: React.FC = () => {
     mutationFn: (file: File) => documentsApi.upload(file).then(res => res.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] })
+      console.log('Document uploaded successfully')
+    },
+    onError: (error: any) => {
+      console.error('Upload error:', error)
+      const errorMessage = error?.response?.data?.detail || error?.message || 'Ошибка при загрузке файла'
+      alert(`Ошибка: ${errorMessage}`)
     },
   })
 
   const handleFileSelect = (file: File) => {
+    console.log('File selected:', file.name, file.type, file.size)
+    
     if (file.type !== 'application/pdf') {
       alert('Пожалуйста, выберите PDF файл')
       return
     }
+    
+    if (file.size === 0) {
+      alert('Файл пустой')
+      return
+    }
+    
+    console.log('Starting upload...')
     uploadMutation.mutate(file)
   }
 
