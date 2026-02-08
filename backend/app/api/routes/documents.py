@@ -51,29 +51,52 @@ async def upload_document(
 ):
     """Upload and index a document"""
     try:
+        logger.info(f"Received upload request for file: {file.filename}")
+        
         # Validate file
-        if not file.filename or not file.filename.endswith('.pdf'):
+        if not file.filename:
+            logger.error("No filename provided")
+            raise HTTPException(status_code=400, detail="No filename provided")
+        
+        if not file.filename.endswith('.pdf'):
+            logger.error(f"Invalid file type: {file.filename}")
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
         
         # Read file content
+        logger.info(f"Reading file content: {file.filename}")
         content = await file.read()
+        logger.info(f"File read, size: {len(content)} bytes")
         
         if len(content) == 0:
+            logger.error("File is empty")
             raise HTTPException(status_code=400, detail="File is empty")
         
         logger.info(f"Uploading file: {file.filename}, size: {len(content)} bytes")
         
         # Save file
         service = DocumentService(db)
-        file_path = service.save_uploaded_file(content, file.filename)
-        logger.info(f"File saved to: {file_path}")
+        try:
+            file_path = service.save_uploaded_file(content, file.filename)
+            logger.info(f"File saved to: {file_path}")
+        except Exception as e:
+            logger.error(f"Error saving file: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
         
         # Create document record
-        document = service.create_document(file.filename, file_path)
-        logger.info(f"Document created with ID: {document.id}")
+        try:
+            document = service.create_document(file.filename, file_path)
+            logger.info(f"Document created with ID: {document.id}")
+        except Exception as e:
+            logger.error(f"Error creating document record: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Error creating document record: {str(e)}")
         
         # Start indexing in background
-        background_tasks.add_task(index_document_task, document.id, file_path)
+        try:
+            background_tasks.add_task(index_document_task, document.id, file_path)
+            logger.info(f"Background indexing task added for document {document.id}")
+        except Exception as e:
+            logger.error(f"Error adding background task: {e}", exc_info=True)
+            # Don't fail the upload if background task fails
         
         return {
             "id": document.id,
@@ -85,6 +108,8 @@ async def upload_document(
         raise
     except Exception as e:
         logger.error(f"Error uploading document: {e}", exc_info=True)
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error uploading document: {str(e)}")
 
 async def index_document_task(document_id: int, file_path: str):

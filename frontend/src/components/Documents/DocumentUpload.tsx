@@ -7,14 +7,41 @@ const DocumentUpload: React.FC = () => {
   const queryClient = useQueryClient()
 
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => documentsApi.upload(file).then(res => res.data),
-    onSuccess: () => {
+    mutationFn: async (file: File) => {
+      console.log('Starting upload mutation for file:', file.name, file.size)
+      try {
+        const response = await documentsApi.upload(file)
+        console.log('Upload response:', response)
+        return response.data
+      } catch (error: any) {
+        console.error('Upload mutation error:', error)
+        console.error('Error details:', {
+          message: error?.message,
+          response: error?.response?.data,
+          status: error?.response?.status,
+          code: error?.code
+        })
+        throw error
+      }
+    },
+    onSuccess: (data) => {
+      console.log('Document uploaded successfully:', data)
       queryClient.invalidateQueries({ queryKey: ['documents'] })
-      console.log('Document uploaded successfully')
     },
     onError: (error: any) => {
-      console.error('Upload error:', error)
-      const errorMessage = error?.response?.data?.detail || error?.message || 'Ошибка при загрузке файла'
+      console.error('Upload error in onError:', error)
+      let errorMessage = 'Ошибка при загрузке файла'
+      
+      if (error?.code === 'ECONNABORTED' || error?.message?.includes('timeout')) {
+        errorMessage = 'Таймаут запроса. Файл слишком большой или сервер не отвечает.'
+      } else if (error?.code === 'ERR_NETWORK' || error?.message?.includes('Network Error')) {
+        errorMessage = 'Ошибка сети. Проверьте, что backend запущен на http://localhost:8000'
+      } else if (error?.response?.data?.detail) {
+        errorMessage = error.response.data.detail
+      } else if (error?.message) {
+        errorMessage = error.message
+      }
+      
       alert(`Ошибка: ${errorMessage}`)
     },
   })
