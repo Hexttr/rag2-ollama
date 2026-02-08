@@ -67,8 +67,14 @@ class PageIndexService:
             Dictionary with index structure
         """
         try:
+            # Check if file exists
+            if not os.path.exists(pdf_path):
+                raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+            
             output_dir = output_dir or settings.INDEX_DIR
             os.makedirs(output_dir, exist_ok=True)
+            
+            logger.info(f"Configuring PageIndex for: {pdf_path}")
             
             # Configure PageIndex options
             opt = config(
@@ -82,10 +88,17 @@ class PageIndexService:
                 if_add_node_text='no'
             )
             
-            logger.info(f"Starting indexing for: {pdf_path}")
+            logger.info(f"Starting PageIndex indexing for: {pdf_path}")
+            logger.info(f"Model: {settings.OLLAMA_MODEL}")
+            logger.info(f"Max pages per node: {settings.PAGEINDEX_MAX_PAGES_PER_NODE}")
             
-            # Index document
-            result = page_index_main(pdf_path, opt)
+            # Index document (this is synchronous, but we're in async function)
+            # Run in executor to avoid blocking
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(None, page_index_main, pdf_path, opt)
+            
+            logger.info(f"Indexing completed, saving index...")
             
             # Save index to file
             pdf_name = Path(pdf_path).stem
@@ -103,6 +116,8 @@ class PageIndexService:
             
         except Exception as e:
             logger.error(f"Indexing failed: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise
     
     def load_index(self, index_path: str) -> Dict:

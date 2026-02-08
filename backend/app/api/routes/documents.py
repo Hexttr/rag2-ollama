@@ -153,12 +153,20 @@ async def index_document_task(document_id: int, file_path: str):
     from app.services.pageindex_service import PageIndexService
     from app.api.routes.websocket import get_connection_manager
     import traceback
+    import os
     
     db = SessionLocal()
     manager = get_connection_manager()
     
     try:
         logger.info(f"Starting indexing task for document {document_id}, file: {file_path}")
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        file_size = os.path.getsize(file_path)
+        logger.info(f"File size: {file_size} bytes ({file_size / 1024 / 1024:.2f} MB)")
         
         service = DocumentService(db)
         
@@ -178,11 +186,14 @@ async def index_document_task(document_id: int, file_path: str):
         
         # Initialize PageIndex service
         try:
+            logger.info("Initializing PageIndexService...")
             pageindex_service = PageIndexService()
-            logger.info("PageIndexService initialized")
+            logger.info("PageIndexService initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize PageIndexService: {e}")
-            raise
+            error_msg = f"Failed to initialize PageIndexService: {e}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            raise Exception(error_msg)
         
         # Notify: processing
         try:
@@ -196,8 +207,15 @@ async def index_document_task(document_id: int, file_path: str):
         
         # Index document
         logger.info(f"Starting PageIndex indexing for: {file_path}")
-        result = await pageindex_service.index_document(file_path)
-        logger.info(f"Indexing completed, index saved to: {result['index_path']}")
+        logger.info(f"This may take a while for large files...")
+        try:
+            result = await pageindex_service.index_document(file_path)
+            logger.info(f"Indexing completed successfully, index saved to: {result['index_path']}")
+        except Exception as e:
+            error_msg = f"PageIndex indexing failed: {e}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            raise Exception(error_msg)
         
         # Notify: indexing complete
         try:
