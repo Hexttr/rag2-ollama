@@ -19,13 +19,15 @@ try:
     from pageindex_ollama import patch_pageindex_for_ollama, check_ollama_connection
     from pageindex.page_index import page_index_main
     from pageindex.utils import config
+    PAGEINDEX_AVAILABLE = True
 except ImportError as e:
-    logging.error(f"Failed to import PageIndex: {e}")
+    logging.warning(f"Failed to import PageIndex: {e}")
     # Fallback - will be handled in __init__
     patch_pageindex_for_ollama = None
     check_ollama_connection = None
     page_index_main = None
     config = None
+    PAGEINDEX_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +36,20 @@ class PageIndexService:
     
     def __init__(self):
         # Patch PageIndex for Ollama
-        if patch_pageindex_for_ollama is None:
-            raise ImportError("PageIndex modules not available. Make sure PageIndex is in the project root.")
+        if not PAGEINDEX_AVAILABLE or patch_pageindex_for_ollama is None:
+            error_msg = "PageIndex modules not available. Make sure PageIndex is in the project root."
+            logger.error(error_msg)
+            raise ImportError(error_msg)
         
-        if check_ollama_connection and not check_ollama_connection():
-            logger.warning("Ollama connection check failed, but continuing...")
-        
-        patch_pageindex_for_ollama()
-        logger.info("PageIndex patched for Ollama")
+        try:
+            if check_ollama_connection and not check_ollama_connection():
+                logger.warning("Ollama connection check failed, but continuing...")
+            
+            patch_pageindex_for_ollama()
+            logger.info("PageIndex patched for Ollama")
+        except Exception as e:
+            logger.error(f"Error patching PageIndex: {e}")
+            raise
     
     async def index_document(
         self,

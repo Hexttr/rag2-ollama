@@ -28,5 +28,12 @@ def get_db():
 
 def init_db():
     """Initialize database - create all tables"""
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        logging.info("Database tables created/verified successfully")
+    except Exception as e:
+        logging.error(f"Error initializing database: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        raise
 

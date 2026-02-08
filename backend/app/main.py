@@ -46,12 +46,16 @@ app.include_router(websocket.router)
 async def startup_event():
     """Initialize database on startup"""
     try:
+        logger.info("Initializing database...")
         init_db()
-        print("✅ Database initialized")
+        logger.info("Database initialized successfully")
+        print("[OK] Database initialized")
     except Exception as e:
-        print(f"❌ Database initialization error: {e}")
+        logger.error(f"Database initialization error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error(traceback.format_exc())
+        print(f"[ERROR] Database initialization failed: {e}")
+        # Don't exit - allow server to start even if DB init fails
 
 @app.get("/")
 async def root():
