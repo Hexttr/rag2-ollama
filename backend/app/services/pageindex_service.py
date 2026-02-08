@@ -36,7 +36,15 @@ try:
     patch_pageindex_for_ollama = pageindex_ollama.patch_pageindex_for_ollama
     check_ollama_connection = pageindex_ollama.check_ollama_connection
     
-    # Then import PageIndex modules
+    # IMPORTANT: Patch PageIndex BEFORE importing it!
+    # This ensures that when PageIndex imports utils, it gets the patched version
+    patch_result = patch_pageindex_for_ollama()
+    if not patch_result:
+        logger_temp.warning("Failed to patch PageIndex for Ollama, but continuing...")
+    else:
+        logger_temp.info("PageIndex patched for Ollama (before import)")
+    
+    # Then import PageIndex modules (they will use patched functions)
     from pageindex.page_index import page_index_main
     from pageindex.utils import config
     
@@ -59,7 +67,7 @@ class PageIndexService:
     """Service for document indexing with PageIndex and Ollama"""
     
     def __init__(self):
-        # Patch PageIndex for Ollama
+        # Patch is already applied at module level, but verify it's still patched
         if not PAGEINDEX_AVAILABLE or patch_pageindex_for_ollama is None:
             error_msg = "PageIndex modules not available. Make sure PageIndex is in the project root."
             logger.error(error_msg)
@@ -69,8 +77,12 @@ class PageIndexService:
             if check_ollama_connection and not check_ollama_connection():
                 logger.warning("Ollama connection check failed, but continuing...")
             
-            patch_pageindex_for_ollama()
-            logger.info("PageIndex patched for Ollama")
+            # Re-apply patch to ensure it's still active (in case of module reload)
+            patch_result = patch_pageindex_for_ollama()
+            if patch_result:
+                logger.info("PageIndex patched for Ollama (verified)")
+            else:
+                logger.warning("Failed to verify patch, but continuing...")
         except Exception as e:
             logger.error(f"Error patching PageIndex: {e}")
             raise
