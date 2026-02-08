@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { documentsApi, chatsApi } from '../../services/api'
 import DocumentList from '../Documents/DocumentList'
 import DocumentUpload from '../Documents/DocumentUpload'
@@ -70,6 +70,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               documents={documents || []}
               selectedId={selectedDocumentId}
               onSelect={onDocumentSelect}
+              onDelete={handleDeleteDocument}
             />
           </div>
         ) : (
