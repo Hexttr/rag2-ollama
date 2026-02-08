@@ -71,9 +71,8 @@ htmlcov/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# PageIndex results
-PageIndex/results/
-PageIndex/tests/results/
+# PageIndex (submodule)
+PageIndex/
 
 # Temporary files
 *.tmp
