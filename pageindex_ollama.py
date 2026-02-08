@@ -35,14 +35,14 @@ def check_ollama_connection():
     except:
         return False
 
-def ChatGPT_API_ollama(model=None, prompt=None, api_key="ollama", chat_history=None):
+def ChatGPT_API_ollama(model=None, prompt=None, api_key=None, chat_history=None):
     """
     Замена ChatGPT_API для работы с Ollama
     
     Args:
         model: Название модели Ollama (по умолчанию из OLLAMA_MODEL)
         prompt: Текст запроса
-        api_key: Не используется для Ollama, но нужен для совместимости
+        api_key: Не используется для Ollama, но нужен для совместимости (может быть None)
         chat_history: История чата (опционально)
     
     Returns:
@@ -54,9 +54,14 @@ def ChatGPT_API_ollama(model=None, prompt=None, api_key="ollama", chat_history=N
     if prompt is None:
         raise ValueError("Prompt is required")
     
+    # Ollama не требует API ключ, но openai.OpenAI требует его наличие
+    # Используем фиктивный ключ если не передан
+    if api_key is None or api_key == "":
+        api_key = "ollama-dummy-key"
+    
     max_retries = 10
     client = openai.OpenAI(
-        api_key=api_key,  # Ollama не требует ключ, но нужен для совместимости
+        api_key=api_key,  # Фиктивный ключ для Ollama
         base_url=OLLAMA_BASE_URL
     )
     
@@ -84,14 +89,14 @@ def ChatGPT_API_ollama(model=None, prompt=None, api_key="ollama", chat_history=N
                 logging.error('Max retries reached for prompt: ' + prompt[:100])
                 return "Error"
 
-async def ChatGPT_API_async_ollama(model=None, prompt=None, api_key="ollama"):
+async def ChatGPT_API_async_ollama(model=None, prompt=None, api_key=None):
     """
     Асинхронная версия для Ollama
     
     Args:
         model: Название модели Ollama
         prompt: Текст запроса
-        api_key: Не используется для Ollama
+        api_key: Не используется для Ollama (может быть None)
     
     Returns:
         str: Ответ модели
@@ -102,13 +107,17 @@ async def ChatGPT_API_async_ollama(model=None, prompt=None, api_key="ollama"):
     if prompt is None:
         raise ValueError("Prompt is required")
     
+    # Ollama не требует API ключ, но openai.AsyncOpenAI требует его наличие
+    if api_key is None or api_key == "":
+        api_key = "ollama-dummy-key"
+    
     max_retries = 10
     messages = [{"role": "user", "content": prompt}]
     
     for i in range(max_retries):
         try:
             client = openai.AsyncOpenAI(
-                api_key=api_key,
+                api_key=api_key,  # Фиктивный ключ для Ollama
                 base_url=OLLAMA_BASE_URL
             )
             
@@ -128,14 +137,14 @@ async def ChatGPT_API_async_ollama(model=None, prompt=None, api_key="ollama"):
                 logging.error('Max retries reached for prompt: ' + prompt[:100])
                 return "Error"
 
-def ChatGPT_API_with_finish_reason_ollama(model=None, prompt=None, api_key="ollama", chat_history=None):
+def ChatGPT_API_with_finish_reason_ollama(model=None, prompt=None, api_key=None, chat_history=None):
     """
     Версия с finish_reason для Ollama
     
     Args:
         model: Название модели Ollama
         prompt: Текст запроса
-        api_key: Не используется для Ollama
+        api_key: Не используется для Ollama (может быть None)
         chat_history: История чата (опционально)
     
     Returns:
@@ -147,9 +156,13 @@ def ChatGPT_API_with_finish_reason_ollama(model=None, prompt=None, api_key="olla
     if prompt is None:
         raise ValueError("Prompt is required")
     
+    # Ollama не требует API ключ, но openai.OpenAI требует его наличие
+    if api_key is None or api_key == "":
+        api_key = "ollama-dummy-key"
+    
     max_retries = 10
     client = openai.OpenAI(
-        api_key=api_key,
+        api_key=api_key,  # Фиктивный ключ для Ollama
         base_url=OLLAMA_BASE_URL
     )
     
