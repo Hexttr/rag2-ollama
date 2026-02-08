@@ -57,11 +57,25 @@ async def get_documents(db: Session = Depends(get_db)):
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(document_id: int, db: Session = Depends(get_db)):
     """Get document by ID"""
-    service = DocumentService(db)
-    document = service.get_document(document_id)
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return document
+    try:
+        service = DocumentService(db)
+        document = service.get_document(document_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return DocumentResponse(
+            id=document.id,
+            filename=document.filename,
+            status=document.status.value if hasattr(document.status, 'value') else str(document.status),
+            created_at=document.created_at.isoformat() if document.created_at and hasattr(document.created_at, 'isoformat') else str(document.created_at) if document.created_at else "",
+            index_path=document.index_path,
+            file_path=document.file_path,
+            error_message=document.error_message
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting document {document_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting document: {str(e)}")
 
 @router.post("/upload")
 async def upload_document(

@@ -24,9 +24,13 @@ const DocumentUpload: React.FC = () => {
         throw error
       }
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       console.log('Document uploaded successfully:', data)
-      queryClient.invalidateQueries({ queryKey: ['documents'] })
+      // Invalidate and refetch documents
+      await queryClient.invalidateQueries({ queryKey: ['documents'] })
+      // Force refetch
+      await queryClient.refetchQueries({ queryKey: ['documents'] })
+      console.log('Documents list refreshed')
     },
     onError: (error: any) => {
       console.error('Upload error in onError:', error)

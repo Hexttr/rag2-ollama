@@ -20,9 +20,11 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'documents' | 'chats'>('documents')
 
-  const { data: documents } = useQuery({
+  const { data: documents, refetch: refetchDocuments } = useQuery({
     queryKey: ['documents'],
     queryFn: () => documentsApi.getAll().then(res => res.data),
+    refetchOnWindowFocus: true,
+    refetchInterval: 2000, // Refetch every 2 seconds to see status updates
   })
 
   const { data: chats } = useQuery({

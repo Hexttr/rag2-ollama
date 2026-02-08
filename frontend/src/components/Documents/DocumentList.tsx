@@ -55,7 +55,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
       case 'uploading':
         return 'Загрузка...'
       default:
-        return status
+        return status || 'Неизвестно'
     }
   }
 
