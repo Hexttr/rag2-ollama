@@ -1,4 +1,6 @@
-import React from 'react'
+import React, { useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useWebSocket } from '../../hooks/useWebSocket'
 import type { Document } from '../../types'
 
 interface DocumentListProps {
@@ -12,6 +14,23 @@ const DocumentList: React.FC<DocumentListProps> = ({
   selectedId,
   onSelect,
 }) => {
+  const queryClient = useQueryClient()
+  
+  // Subscribe to WebSocket updates for indexing documents
+  const indexingDocs = documents.filter(doc => doc.status === 'indexing')
+  
+  useEffect(() => {
+    // Poll for status updates on indexing documents
+    if (indexingDocs.length > 0) {
+      const interval = setInterval(() => {
+        indexingDocs.forEach(doc => {
+          queryClient.invalidateQueries({ queryKey: ['documents'] })
+        })
+      }, 2000) // Poll every 2 seconds
+      
+      return () => clearInterval(interval)
+    }
+  }, [indexingDocs.length, queryClient])
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ready':
