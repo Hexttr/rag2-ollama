@@ -43,7 +43,7 @@ export const healthApi = {
 
 // Documents
 export const documentsApi = {
-  getAll: () => api.get<Document[]>('/api/documents'),
+  getAll: () => api.get<Document[]>('/api/documents/'),
   getById: (id: number) => api.get<Document>(`/api/documents/${id}`),
   upload: (file: File) => {
     const formData = new FormData()

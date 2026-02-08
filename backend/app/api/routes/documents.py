@@ -27,12 +27,21 @@ class DocumentResponse(BaseModel):
     class Config:
         from_attributes = True
 
+@router.get("", response_model=List[DocumentResponse])
 @router.get("/", response_model=List[DocumentResponse])
 async def get_documents(db: Session = Depends(get_db)):
     """Get all documents"""
-    service = DocumentService(db)
-    documents = service.get_all_documents()
-    return documents
+    try:
+        service = DocumentService(db)
+        documents = service.get_all_documents()
+        logger.info(f"Retrieved {len(documents)} documents")
+        # Convert to response models
+        return [DocumentResponse.from_orm(doc) for doc in documents]
+    except Exception as e:
+        logger.error(f"Error getting documents: {e}", exc_info=True)
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error getting documents: {str(e)}")
 
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(document_id: int, db: Session = Depends(get_db)):
