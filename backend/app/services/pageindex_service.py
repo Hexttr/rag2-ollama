@@ -143,14 +143,48 @@ class PageIndexService:
             def _index_with_patch(pdf_path, opt):
                 """Wrapper that ensures patch is applied in executor thread"""
                 # Re-apply patch in this thread to ensure it's active
+                # This is critical because executor runs in a separate thread
                 try:
-                    patch_result = patch_pageindex_for_ollama()
+                    # Re-import and patch in this thread
+                    import sys
+                    from pathlib import Path
+                    project_root = Path(__file__).parent.parent.parent.parent
+                    if str(project_root) not in sys.path:
+                        sys.path.insert(0, str(project_root))
+                    if str(project_root / "PageIndex") not in sys.path:
+                        sys.path.insert(0, str(project_root / "PageIndex"))
+                    
+                    # Import and patch
+                    import pageindex_ollama
+                    patch_result = pageindex_ollama.patch_pageindex_for_ollama()
                     if patch_result:
                         logger.info("Patch re-applied in executor thread")
                     else:
                         logger.warning("Failed to re-apply patch in executor thread")
+                    
+                    # Verify patch
+                    from pageindex import utils
+                    if utils.ChatGPT_API is not pageindex_ollama.ChatGPT_API_ollama:
+                        logger.error("Patch verification failed in executor thread!")
+                        logger.error(f"Expected: {pageindex_ollama.ChatGPT_API_ollama}")
+                        logger.error(f"Got: {utils.ChatGPT_API}")
+                    else:
+                        logger.info("Patch verified successfully in executor thread")
+                    
+                    # Also patch page_index if it's imported
+                    try:
+                        from pageindex import page_index
+                        page_index.ChatGPT_API = pageindex_ollama.ChatGPT_API_ollama
+                        page_index.ChatGPT_API_async = pageindex_ollama.ChatGPT_API_async_ollama
+                        page_index.ChatGPT_API_with_finish_reason = pageindex_ollama.ChatGPT_API_with_finish_reason_ollama
+                        logger.info("page_index module patched in executor thread")
+                    except ImportError:
+                        pass
+                        
                 except Exception as e:
                     logger.error(f"Error re-applying patch in executor: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                 
                 # Now run indexing
                 return page_index_main(pdf_path, opt)
