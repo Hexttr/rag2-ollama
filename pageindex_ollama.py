@@ -197,11 +197,12 @@ def ChatGPT_API_with_finish_reason_ollama(model=None, prompt=None, api_key=None,
 # Функция для патчинга модуля pageindex.utils
 def patch_pageindex_for_ollama():
     """
-    Заменяет функции в pageindex.utils на версии для Ollama
+    Заменяет функции в pageindex.utils и pageindex.page_index на версии для Ollama
     """
     try:
-        # Import utils module (may already be imported)
         import sys
+        
+        # Import utils module (may already be imported)
         if 'pageindex.utils' in sys.modules:
             # Module already imported, patch it directly
             from pageindex import utils
@@ -209,14 +210,23 @@ def patch_pageindex_for_ollama():
             # Module not imported yet, import it first
             from pageindex import utils
         
-        # Replace functions with Ollama versions
+        # Replace functions in utils module
         utils.ChatGPT_API = ChatGPT_API_ollama
         utils.ChatGPT_API_async = ChatGPT_API_async_ollama
         utils.ChatGPT_API_with_finish_reason = ChatGPT_API_with_finish_reason_ollama
         
-        # Verify patch was applied
+        # CRITICAL: page_index.py uses "from .utils import *"
+        # So we need to patch functions in page_index module too!
+        if 'pageindex.page_index' in sys.modules:
+            from pageindex import page_index
+            # Patch functions in page_index module (they were imported via "from .utils import *")
+            page_index.ChatGPT_API = ChatGPT_API_ollama
+            page_index.ChatGPT_API_async = ChatGPT_API_async_ollama
+            page_index.ChatGPT_API_with_finish_reason = ChatGPT_API_with_finish_reason_ollama
+        
+        # Verify patch was applied in utils
         if utils.ChatGPT_API is not ChatGPT_API_ollama:
-            print("[WARNING] Patch may not have been applied correctly!")
+            print("[WARNING] Patch may not have been applied correctly in utils!")
             return False
         
         print("[OK] PageIndex successfully configured for Ollama!")

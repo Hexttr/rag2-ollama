@@ -48,6 +48,12 @@ try:
     from pageindex.page_index import page_index_main
     from pageindex.utils import config
     
+    # CRITICAL: Re-patch after import because page_index uses "from .utils import *"
+    # which copies functions to its namespace, so we need to patch both
+    patch_result2 = patch_pageindex_for_ollama()
+    if patch_result2:
+        logger_temp.info("PageIndex re-patched after import (for page_index module)")
+    
     PAGEINDEX_AVAILABLE = True
     logger_temp.info("PageIndex modules imported successfully")
 except ImportError as e:
