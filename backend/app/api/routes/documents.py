@@ -36,7 +36,18 @@ async def get_documents(db: Session = Depends(get_db)):
         documents = service.get_all_documents()
         logger.info(f"Retrieved {len(documents)} documents")
         # Convert to response models
-        return [DocumentResponse.from_orm(doc) for doc in documents]
+        result = []
+        for doc in documents:
+            result.append(DocumentResponse(
+                id=doc.id,
+                filename=doc.filename,
+                status=doc.status.value if hasattr(doc.status, 'value') else str(doc.status),
+                created_at=doc.created_at.isoformat() if doc.created_at and hasattr(doc.created_at, 'isoformat') else str(doc.created_at) if doc.created_at else "",
+                index_path=doc.index_path,
+                file_path=doc.file_path,
+                error_message=doc.error_message
+            ))
+        return result
     except Exception as e:
         logger.error(f"Error getting documents: {e}", exc_info=True)
         import traceback
