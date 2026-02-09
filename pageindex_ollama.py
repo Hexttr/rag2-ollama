@@ -143,10 +143,10 @@ def patch_pageindex_for_ollama(
         def patched_ChatGPT_API(model=None, prompt=None, api_key=None, chat_history=None):
             """Патченая версия ChatGPT_API для Ollama"""
             max_retries = 10
-            # Используем переданную модель или глобальную, но логируем для отладки
+            # Используем переданную модель или глобальную
             final_model = model or _ollama_model
-            if model != final_model:
-                logger.debug(f"Используется модель из настроек: {final_model} (переданная: {model})")
+            if not model:
+                logger.debug(f"Используется модель из настроек патчинга: {final_model}")
             model = final_model
             
             # Используем глобальный клиент Ollama
