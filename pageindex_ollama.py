@@ -368,8 +368,11 @@ def patch_pageindex_for_ollama(
 
 def get_ollama_settings():
     """Получить текущие настройки Ollama"""
-    return {
-        "base_url": _ollama_base_url,
-        "model": _ollama_model,
-        "patched": _patched
-    }
+    global _ollama_settings
+    if not _ollama_settings:
+        _ollama_settings = {
+            "base_url": _ollama_base_url,
+            "model": _ollama_model,
+            "patched": _patched
+        }
+    return _ollama_settings
