@@ -239,6 +239,9 @@ def patch_pageindex_for_ollama(
             messages = [{"role": "user", "content": prompt}]
             
             # Используем глобальный асинхронный клиент Ollama
+            if _ollama_async_client is None:
+                logger.error("Ollama async client не инициализирован! Патчинг не был выполнен.")
+                return "Error"
             client = _ollama_async_client
             
             for i in range(max_retries):
