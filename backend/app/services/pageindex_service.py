@@ -80,7 +80,7 @@ try:
                 for i in range(max_retries):
                     try:
                         response = await ollama_async_client.chat.completions.create(
-                            model=model, messages=messages, temperature=0, timeout=300
+                            model=model, messages=messages, temperature=0, timeout=900  # 15 минут для больших документов
                         )
                         return response.choices[0].message.content
                     except Exception as e:
@@ -101,7 +101,7 @@ try:
                         else:
                             messages = [{"role": "user", "content": prompt}]
                         response = ollama_client.chat.completions.create(
-                            model=model, messages=messages, temperature=0
+                            model=model, messages=messages, temperature=0, timeout=900  # 15 минут для больших документов
                         )
                         finish_reason = response.choices[0].finish_reason
                         if finish_reason == "length":
