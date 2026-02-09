@@ -63,7 +63,7 @@ try:
                         else:
                             messages = [{"role": "user", "content": prompt}]
                         response = ollama_client.chat.completions.create(
-                            model=model, messages=messages, temperature=0
+                            model=model, messages=messages, temperature=0, timeout=300
                         )
                         return response.choices[0].message.content
                     except Exception as e:
@@ -80,7 +80,7 @@ try:
                 for i in range(max_retries):
                     try:
                         response = await ollama_async_client.chat.completions.create(
-                            model=model, messages=messages, temperature=0
+                            model=model, messages=messages, temperature=0, timeout=300
                         )
                         return response.choices[0].message.content
                     except Exception as e:
@@ -106,6 +106,16 @@ try:
                         finish_reason = response.choices[0].finish_reason
                         if finish_reason == "length":
                             return response.choices[0].message.content, "max_output_reached"
+                        elif finish_reason == "error":
+                            # Если finish_reason == "error", пробуем повторить запрос
+                            logger.warning(f"Ollama вернул finish_reason='error', повторяю запрос ({i+1}/{max_retries})")
+                            if i < max_retries - 1:
+                                import time
+                                time.sleep(1)
+                                continue
+                            else:
+                                logger.error("Max retries reached, finish_reason='error'")
+                                return "Error", "error"
                         else:
                             return response.choices[0].message.content, "finished"
                     except Exception as e:

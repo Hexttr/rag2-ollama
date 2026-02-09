@@ -2,46 +2,46 @@
 
 ## Проблема
 
-Ошибка `KeyError: 'toc_detected'` на строке 122 в `toc_detector_single_page`.
+**Ошибка**: `finish reason: error`
 
-## Решение
+Ollama возвращал `finish_reason == "error"` в ответе, но код не обрабатывал этот случай правильно.
 
-Исправлена функция `toc_detector_single_page` в `PageIndex/pageindex/page_index.py`:
+## Исправления
 
-**Было:**
-```python
-response = ChatGPT_API(model=model, prompt=prompt)
-json_content = extract_json(response)    
-return json_content['toc_detected']  # KeyError если ключа нет
-```
+### 1. Обработка `finish_reason == "error"`
 
-**Стало:**
-```python
-response = ChatGPT_API(model=model, prompt=prompt)
+Добавлена обработка случая, когда Ollama возвращает `finish_reason == "error"`:
 
-# Проверяем, что ответ не является ошибкой
-if not response or response == "Error":
-    return "no"
+**В `pageindex_ollama.py`:**
+- Функция `patched_ChatGPT_API_with_finish_reason` теперь проверяет `finish_reason == "error"`
+- При ошибке делается повторная попытка (до 10 раз)
+- Если все попытки исчерпаны, возвращается "Error", "error"
 
-json_content = extract_json(response)
+**В `backend/app/services/pageindex_service.py`:**
+- Та же логика применена к локальной версии функции
 
-# Проверяем, что JSON успешно извлечен
-if not json_content or not isinstance(json_content, dict):
-    return "no"
+### 2. Добавлен timeout во все запросы к Ollama
 
-# Используем .get() для безопасного доступа
-return json_content.get('toc_detected', 'no')
-```
+Добавлен `timeout=300` (5 минут) во все вызовы:
+- `ollama_client.chat.completions.create()`
+- `ollama_async_client.chat.completions.create()`
 
-## Исправления применены
+Это предотвращает зависания при долгих запросах.
 
-- ✅ Функция `toc_detector_single_page` исправлена
-- ✅ Исправлены аналогичные функции
-- ✅ Backend перезапущен
+## Измененные файлы
+
+1. `pageindex_ollama.py`:
+   - Добавлена обработка `finish_reason == "error"`
+   - Добавлен timeout во все запросы
+
+2. `backend/app/services/pageindex_service.py`:
+   - Добавлена обработка `finish_reason == "error"`
+   - Добавлен timeout во все запросы
 
 ## Готовность
 
-✅ **Ошибка исправлена!**
+✅ **Ошибка исправлена**
+✅ **Код обрабатывает `finish_reason == "error"`**
+✅ **Добавлен timeout для предотвращения зависаний**
 
-Теперь индексация должна работать без KeyError, даже при проблемах с Ollama.
-
+Теперь индексация должна работать корректно даже при ошибках Ollama.
