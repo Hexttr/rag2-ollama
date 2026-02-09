@@ -54,9 +54,6 @@ def patch_pageindex_for_ollama(
     new_base_url = base_url or DEFAULT_OLLAMA_BASE_URL
     new_model = model or DEFAULT_OLLAMA_MODEL
     
-    # Объявляем глобальные переменные в начале функции
-    global _ollama_client, _ollama_async_client
-    
     # Если патчинг уже выполнен, но модель или URL изменились, сбрасываем патчинг
     if _patched:
         if _ollama_base_url != new_base_url or _ollama_model != new_model:
@@ -126,9 +123,6 @@ def patch_pageindex_for_ollama(
             raise ImportError("Не удалось найти модуль utils из PageIndex")
         
         logger.info(f"Найден модуль utils: {utils_module_name}")
-        
-        # Объявляем глобальные переменные ДО их использования
-        global _ollama_client, _ollama_async_client
         
         # Создаем клиент OpenAI-совместимый для Ollama
         # ВАЖНО: api_key должен быть строкой, не None
