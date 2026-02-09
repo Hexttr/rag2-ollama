@@ -46,15 +46,26 @@ def patch_pageindex_for_ollama(
     Returns:
         True если патчинг успешен
     """
-    global _ollama_base_url, _ollama_model, _patched
-    
-    if _patched:
-        logger.info("PageIndex уже патчен для Ollama")
-        return True
+    global _ollama_base_url, _ollama_model, _patched, _ollama_client, _ollama_async_client
     
     # Устанавливаем настройки
-    _ollama_base_url = base_url or DEFAULT_OLLAMA_BASE_URL
-    _ollama_model = model or DEFAULT_OLLAMA_MODEL
+    new_base_url = base_url or DEFAULT_OLLAMA_BASE_URL
+    new_model = model or DEFAULT_OLLAMA_MODEL
+    
+    # Если патчинг уже выполнен, но модель или URL изменились, сбрасываем патчинг
+    if _patched:
+        if _ollama_base_url != new_base_url or _ollama_model != new_model:
+            logger.info(f"Настройки Ollama изменились (было: {_ollama_model}, стало: {new_model}), перепатчиваем...")
+            _patched = False
+            _ollama_client = None
+            _ollama_async_client = None
+        else:
+            logger.info(f"PageIndex уже патчен для Ollama (model={_ollama_model})")
+            return True
+    
+    # Устанавливаем настройки
+    _ollama_base_url = new_base_url
+    _ollama_model = new_model
     
     # Проверяем подключение
     if not check_ollama_connection(_ollama_base_url):
@@ -132,7 +143,11 @@ def patch_pageindex_for_ollama(
         def patched_ChatGPT_API(model=None, prompt=None, api_key=None, chat_history=None):
             """Патченая версия ChatGPT_API для Ollama"""
             max_retries = 10
-            model = model or _ollama_model
+            # Используем переданную модель или глобальную, но логируем для отладки
+            final_model = model or _ollama_model
+            if model != final_model:
+                logger.debug(f"Используется модель из настроек: {final_model} (переданная: {model})")
+            model = final_model
             
             # Используем глобальный клиент Ollama
             client = _ollama_client
