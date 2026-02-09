@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1:8b")  # Default to available model
-    OLLAMA_TIMEOUT: int = 300
+    OLLAMA_TIMEOUT: int = 900  # 15 минут - увеличен для больших документов
     
     # PageIndex
     PAGEINDEX_MAX_PAGES_PER_NODE: int = 10

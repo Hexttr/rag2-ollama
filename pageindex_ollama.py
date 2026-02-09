@@ -140,7 +140,7 @@ def patch_pageindex_for_ollama(
                         model=model,
                         messages=messages,
                         temperature=0,
-                        timeout=300  # 5 минут timeout
+                        timeout=900  # 15 минут timeout для больших документов
                     )
                     
                     return response.choices[0].message.content
@@ -172,7 +172,7 @@ def patch_pageindex_for_ollama(
                         model=model,
                         messages=messages,
                         temperature=0,
-                        timeout=300  # 5 минут timeout
+                        timeout=900  # 15 минут timeout для больших документов
                     )
                     
                     finish_reason = response.choices[0].finish_reason
@@ -213,7 +213,7 @@ def patch_pageindex_for_ollama(
                         model=model,
                         messages=messages,
                         temperature=0,
-                        timeout=300  # 5 минут timeout
+                        timeout=900  # 15 минут timeout для больших документов
                     )
                     return response.choices[0].message.content
                 except Exception as e:
