@@ -347,6 +347,15 @@ def patch_pageindex_for_ollama(
             logger.warning(f"Не удалось патчить page_index модуль: {e}")
         
         _patched = True
+        
+        # Обновляем настройки для get_ollama_settings
+        global _ollama_settings
+        _ollama_settings = {
+            'base_url': _ollama_base_url,
+            'model': _ollama_model,
+            'patched': True
+        }
+        
         logger.info(f"✅ PageIndex успешно патчен для Ollama (base_url={_ollama_base_url}, model={_ollama_model})")
         return True
         
