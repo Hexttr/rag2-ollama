@@ -22,12 +22,12 @@ class Settings(BaseSettings):
     
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1:8b")  # Default to available model
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "phi3:3.8b")  # Используем phi3:3.8b для лучшей производительности на GPU
     OLLAMA_TIMEOUT: int = 900  # 15 минут - увеличен для больших документов
     
     # PageIndex
-    PAGEINDEX_MAX_PAGES_PER_NODE: int = 10
-    PAGEINDEX_MAX_TOKENS_PER_NODE: int = 20000
+    PAGEINDEX_MAX_PAGES_PER_NODE: int = 5  # Уменьшено для более быстрой обработки на GPU
+    PAGEINDEX_MAX_TOKENS_PER_NODE: int = 15000  # Уменьшено для более быстрой обработки на GPU
     
     # Security
     MAX_FILE_SIZE: int = 104857600  # 100MB
