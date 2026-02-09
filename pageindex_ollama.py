@@ -19,6 +19,8 @@ DEFAULT_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 _ollama_base_url = DEFAULT_OLLAMA_BASE_URL
 _ollama_model = DEFAULT_OLLAMA_MODEL
 _patched = False
+_ollama_client = None
+_ollama_async_client = None
 
 
 def check_ollama_connection(base_url: Optional[str] = None) -> bool:
