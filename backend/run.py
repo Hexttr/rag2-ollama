@@ -7,9 +7,10 @@ from app.core.config import settings
 if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
-        host=settings.BACKEND_HOST,
+        host="127.0.0.1",  # Use 127.0.0.1 instead of 0.0.0.0 for better compatibility
         port=settings.BACKEND_PORT,
-        reload=True
+        reload=False,  # Disable reload to avoid issues
+        log_level="info"
     )
 
 
