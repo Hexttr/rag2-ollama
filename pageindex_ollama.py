@@ -124,6 +124,9 @@ def patch_pageindex_for_ollama(
         
         logger.info(f"Найден модуль utils: {utils_module_name}")
         
+        # Объявляем глобальные переменные ДО их использования
+        global _ollama_client, _ollama_async_client
+        
         # Создаем клиент OpenAI-совместимый для Ollama
         # ВАЖНО: api_key должен быть строкой, не None
         ollama_client = openai.OpenAI(
@@ -137,7 +140,6 @@ def patch_pageindex_for_ollama(
         )
         
         # Сохраняем клиенты в глобальной области для использования в патченных функциях
-        global _ollama_client, _ollama_async_client
         _ollama_client = ollama_client
         _ollama_async_client = ollama_async_client
         
