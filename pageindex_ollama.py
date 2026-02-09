@@ -112,6 +112,7 @@ def patch_pageindex_for_ollama(
         logger.info(f"Найден модуль utils: {utils_module_name}")
         
         # Создаем клиент OpenAI-совместимый для Ollama
+        # ВАЖНО: api_key должен быть строкой, не None
         ollama_client = openai.OpenAI(
             api_key="ollama",  # Не используется, но требуется для совместимости
             base_url=_ollama_base_url
@@ -122,11 +123,19 @@ def patch_pageindex_for_ollama(
             base_url=_ollama_base_url
         )
         
+        # Сохраняем клиенты в глобальной области для использования в патченных функциях
+        global _ollama_client, _ollama_async_client
+        _ollama_client = ollama_client
+        _ollama_async_client = ollama_async_client
+        
         # Патчим ChatGPT_API
         def patched_ChatGPT_API(model=None, prompt=None, api_key=None, chat_history=None):
             """Патченая версия ChatGPT_API для Ollama"""
             max_retries = 10
             model = model or _ollama_model
+            
+            # Используем глобальный клиент Ollama
+            client = _ollama_client
             
             for i in range(max_retries):
                 try:
@@ -136,7 +145,7 @@ def patch_pageindex_for_ollama(
                     else:
                         messages = [{"role": "user", "content": prompt}]
                     
-                    response = ollama_client.chat.completions.create(
+                    response = client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0,
@@ -160,6 +169,9 @@ def patch_pageindex_for_ollama(
             max_retries = 10
             model = model or _ollama_model
             
+            # Используем глобальный клиент Ollama
+            client = _ollama_client
+            
             for i in range(max_retries):
                 try:
                     if chat_history:
@@ -168,7 +180,7 @@ def patch_pageindex_for_ollama(
                     else:
                         messages = [{"role": "user", "content": prompt}]
                     
-                    response = ollama_client.chat.completions.create(
+                    response = client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0,
@@ -207,9 +219,12 @@ def patch_pageindex_for_ollama(
             model = model or _ollama_model
             messages = [{"role": "user", "content": prompt}]
             
+            # Используем глобальный асинхронный клиент Ollama
+            client = _ollama_async_client
+            
             for i in range(max_retries):
                 try:
-                    response = await ollama_async_client.chat.completions.create(
+                    response = await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0,
