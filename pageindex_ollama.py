@@ -144,12 +144,25 @@ def patch_pageindex_for_ollama(
         def patched_ChatGPT_API(model=None, prompt=None, api_key=None, chat_history=None):
             """Патченая версия ChatGPT_API для Ollama"""
             max_retries = 10
-            # ВАЖНО: Всегда используем модель из настроек Ollama, игнорируя переданную модель
-            # так как переданная модель может быть "gpt-4o-2024-11-20" или другой OpenAI моделью
+            # КРИТИЧНО: Всегда используем модель из настроек Ollama, игнорируя переданную модель
+            original_model = model
             final_model = _ollama_model
-            if model and model != _ollama_model:
-                logger.warning(f"Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
-            model = final_model
+            
+            # Проверяем, не является ли переданная модель OpenAI моделью
+            if model and (model.startswith("gpt-") or model.startswith("claude-") or "openai" in model.lower()):
+                logger.warning(f"🚫 Обнаружена OpenAI модель '{model}', принудительно заменяем на '{final_model}'")
+                model = final_model
+            elif model and model != _ollama_model:
+                logger.warning(f"⚠️ Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
+                model = final_model
+            elif model is None:
+                model = final_model
+                logger.debug(f"Используется модель из настроек: '{model}'")
+            
+            # Дополнительная проверка перед запросом
+            if model != _ollama_model:
+                logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: модель '{model}' не совпадает с настройкой '{_ollama_model}'! Принудительно заменяем.")
+                model = _ollama_model
             
             # Используем глобальный клиент Ollama
             client = _ollama_client
@@ -161,6 +174,9 @@ def patch_pageindex_for_ollama(
                         messages.append({"role": "user", "content": prompt})
                     else:
                         messages = [{"role": "user", "content": prompt}]
+                    
+                    # КРИТИЧНО: Логируем модель перед запросом для отладки
+                    logger.info(f"🔍 Отправка запроса в Ollama с моделью: '{model}' (должна быть '{_ollama_model}')")
                     
                     response = client.chat.completions.create(
                         model=model,
@@ -184,12 +200,26 @@ def patch_pageindex_for_ollama(
         def patched_ChatGPT_API_with_finish_reason(model=None, prompt=None, api_key=None, chat_history=None):
             """Патченая версия ChatGPT_API_with_finish_reason для Ollama"""
             max_retries = 10
-            # ВАЖНО: Всегда используем модель из настроек Ollama, игнорируя переданную модель
+            # КРИТИЧНО: Всегда используем модель из настроек Ollama, игнорируя переданную модель
             # так как переданная модель может быть "gpt-4o-2024-11-20" или другой OpenAI моделью
+            original_model = model
             final_model = _ollama_model
-            if model and model != _ollama_model:
-                logger.warning(f"Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
-            model = final_model
+            
+            # Проверяем, не является ли переданная модель OpenAI моделью
+            if model and (model.startswith("gpt-") or model.startswith("claude-") or "openai" in model.lower()):
+                logger.warning(f"🚫 Обнаружена OpenAI модель '{model}', принудительно заменяем на '{final_model}'")
+                model = final_model
+            elif model and model != _ollama_model:
+                logger.warning(f"⚠️ Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
+                model = final_model
+            elif model is None:
+                model = final_model
+                logger.debug(f"Используется модель из настроек: '{model}'")
+            
+            # Дополнительная проверка перед запросом
+            if model != _ollama_model:
+                logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: модель '{model}' не совпадает с настройкой '{_ollama_model}'! Принудительно заменяем.")
+                model = _ollama_model
             
             # Используем глобальный клиент Ollama
             client = _ollama_client
@@ -201,6 +231,9 @@ def patch_pageindex_for_ollama(
                         messages.append({"role": "user", "content": prompt})
                     else:
                         messages = [{"role": "user", "content": prompt}]
+                    
+                    # КРИТИЧНО: Логируем модель перед запросом для отладки
+                    logger.info(f"🔍 Отправка запроса в Ollama с моделью: '{model}' (должна быть '{_ollama_model}')")
                     
                     response = client.chat.completions.create(
                         model=model,
@@ -259,6 +292,9 @@ def patch_pageindex_for_ollama(
             
             for i in range(max_retries):
                 try:
+                    # КРИТИЧНО: Логируем модель перед запросом для отладки
+                    logger.info(f"🔍 Отправка async запроса в Ollama с моделью: '{model}' (должна быть '{_ollama_model}')")
+                    
                     response = await client.chat.completions.create(
                         model=model,
                         messages=messages,

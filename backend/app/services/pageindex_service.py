@@ -16,18 +16,28 @@ project_root = Path(__file__).parent.parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# Патчим PageIndex для Ollama ПЕРЕД импортом
+# КРИТИЧНО: Патчим PageIndex для Ollama ПЕРЕД импортом
 try:
     from pageindex_ollama import patch_pageindex_for_ollama, check_ollama_connection
+    
+    logger.info(f"🔧 Начинаю патчинг PageIndex для Ollama (модель: {settings.OLLAMA_MODEL})")
     
     # Проверяем и патчим
     if not patch_pageindex_for_ollama(
         base_url=settings.OLLAMA_BASE_URL,
         model=settings.OLLAMA_MODEL
     ):
-        logger.error("Не удалось настроить PageIndex для Ollama")
+        logger.error("❌ Не удалось настроить PageIndex для Ollama")
+        raise RuntimeError("Не удалось настроить PageIndex для Ollama")
+    else:
+        logger.info(f"✅ PageIndex успешно патчен для Ollama (модель: {settings.OLLAMA_MODEL})")
 except ImportError as e:
-    logger.error(f"Не удалось импортировать pageindex_ollama: {e}")
+    logger.error(f"❌ Не удалось импортировать pageindex_ollama: {e}")
+    raise
+except Exception as e:
+    logger.error(f"❌ Ошибка при патчинге PageIndex: {e}")
+    import traceback
+    logger.error(traceback.format_exc())
     raise
 
 # Теперь импортируем PageIndex (уже с патчем)
