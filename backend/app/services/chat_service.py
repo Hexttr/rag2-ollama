@@ -103,21 +103,33 @@ class ChatService:
                 # Get document
                 document = self.db.query(Document).filter(Document.id == document_id).first()
                 if document and document.index_path and document.status.value == "ready":
-                    # Search in document tree
+                    # Search in document tree using reasoning-based search
                     search_result = await self.pageindex_service.search_tree(
                         document.index_path,
                         query
                     )
                     
-                    # Extract context from search result
-                    # This is simplified - will be improved with actual tree search
-                    if "index" in search_result and "structure" in search_result["index"]:
-                        # Get relevant sections
-                        structure = search_result["index"]["structure"]
+                    # Extract context and sources from search result
+                    context = search_result.get("context", "")
+                    sources = search_result.get("sources", [])
+                    
+                    # Логируем результаты поиска
+                    node_list = search_result.get("node_list", [])
+                    logger.info(f"Tree search found {len(node_list)} relevant nodes for query: {query[:50]}")
+                    
+                    if not context:
+                        logger.warning("Tree search не вернул контекст, используем fallback")
+                        # Fallback: используем простой поиск
+                        index_data = self.pageindex_service.load_index(document.index_path)
+                        structure = index_data.get('structure', [])
                         context = self._extract_context_from_structure(structure, query)
                         sources = self._extract_sources(structure)
             except Exception as e:
                 logger.error(f"Error searching document: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                context = ""
+                sources = None
         
         # Generate response using Ollama
         try:
@@ -198,6 +210,7 @@ class ChatService:
         self.db.delete(chat)
         self.db.commit()
         return True
+
 
 
 

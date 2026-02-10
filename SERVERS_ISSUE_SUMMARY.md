@@ -64,3 +64,4 @@ npm run dev
 - ✅ Frontend: http://localhost:5173/ → 200 OK
 - ✅ Оба порта слушают (LISTENING)
 
+

@@ -144,10 +144,11 @@ def patch_pageindex_for_ollama(
         def patched_ChatGPT_API(model=None, prompt=None, api_key=None, chat_history=None):
             """Патченая версия ChatGPT_API для Ollama"""
             max_retries = 10
-            # Используем переданную модель или глобальную
-            final_model = model or _ollama_model
-            if not model:
-                logger.debug(f"Используется модель из настроек патчинга: {final_model}")
+            # ВАЖНО: Всегда используем модель из настроек Ollama, игнорируя переданную модель
+            # так как переданная модель может быть "gpt-4o-2024-11-20" или другой OpenAI моделью
+            final_model = _ollama_model
+            if model and model != _ollama_model:
+                logger.warning(f"Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
             model = final_model
             
             # Используем глобальный клиент Ollama
@@ -183,7 +184,12 @@ def patch_pageindex_for_ollama(
         def patched_ChatGPT_API_with_finish_reason(model=None, prompt=None, api_key=None, chat_history=None):
             """Патченая версия ChatGPT_API_with_finish_reason для Ollama"""
             max_retries = 10
-            model = model or _ollama_model
+            # ВАЖНО: Всегда используем модель из настроек Ollama, игнорируя переданную модель
+            # так как переданная модель может быть "gpt-4o-2024-11-20" или другой OpenAI моделью
+            final_model = _ollama_model
+            if model and model != _ollama_model:
+                logger.warning(f"Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
+            model = final_model
             
             # Используем глобальный клиент Ollama
             client = _ollama_client
@@ -229,17 +235,27 @@ def patch_pageindex_for_ollama(
                         return "Error", "error"
         
         # Патчим ChatGPT_API_async
-        async def patched_ChatGPT_API_async(model=None, prompt=None, api_key=None):
+        async def patched_ChatGPT_API_async(model=None, prompt=None, api_key=None, chat_history=None):
             """Патченая версия ChatGPT_API_async для Ollama"""
             max_retries = 10
-            model = model or _ollama_model
-            messages = [{"role": "user", "content": prompt}]
+            # ВАЖНО: Всегда используем модель из настроек Ollama, игнорируя переданную модель
+            final_model = _ollama_model
+            if model and model != _ollama_model:
+                logger.warning(f"Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
+            model = final_model
             
             # Используем глобальный асинхронный клиент Ollama
             if _ollama_async_client is None:
                 logger.error("Ollama async client не инициализирован! Патчинг не был выполнен.")
                 return "Error"
             client = _ollama_async_client
+            
+            # Подготовка сообщений
+            if chat_history:
+                messages = chat_history.copy()
+                messages.append({"role": "user", "content": prompt})
+            else:
+                messages = [{"role": "user", "content": prompt}]
             
             for i in range(max_retries):
                 try:
@@ -251,7 +267,7 @@ def patch_pageindex_for_ollama(
                     )
                     return response.choices[0].message.content
                 except Exception as e:
-                    logger.warning(f'************* Retrying ({i+1}/{max_retries}) *************')
+                    logger.warning(f'************* Retrying async ({i+1}/{max_retries}) *************')
                     logger.error(f"Error: {e}")
                     if i < max_retries - 1:
                         await asyncio.sleep(1)

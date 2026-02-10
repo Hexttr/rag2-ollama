@@ -71,3 +71,4 @@ tail -f backend/logs/backend.log
 
 **Откройте http://localhost:5173/ и начните тест индексации!**
 
+

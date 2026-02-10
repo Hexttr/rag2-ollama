@@ -63,3 +63,4 @@ print("  POST http://localhost:8000/api/documents/upload")
 print("  Content-Type: multipart/form-data")
 print("  Body: file=<путь_к_pdf>")
 
+

@@ -60,3 +60,4 @@ netsh interface set interface "Ethernet" admin=enable
 
 Проверьте работу Ollama и Backend - они должны работать без проблем с VPN.
 
+

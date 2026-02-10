@@ -172,14 +172,39 @@ def index_document_task(document_id: int, file_path: str, db: Session):
     Фоновая задача для индексации документа
     """
     from app.database.database import SessionLocal
+    from app.api.routes.websocket import get_connection_manager
+    import asyncio
     
     # Создаем новую сессию БД для фоновой задачи
     db_session = SessionLocal()
     document_service = DocumentService(db_session)
     pageindex_service = PageIndexService()
+    connection_manager = get_connection_manager()
+    
+    def send_ws_message(message: dict):
+        """Вспомогательная функция для отправки WebSocket сообщений"""
+        try:
+            # Используем asyncio для отправки в синхронном контексте
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Если цикл уже запущен, создаем задачу
+                asyncio.create_task(connection_manager.broadcast_to_document(document_id, message))
+            else:
+                # Если цикл не запущен, запускаем его
+                loop.run_until_complete(connection_manager.broadcast_to_document(document_id, message))
+        except Exception as ws_error:
+            logger.debug(f"Не удалось отправить WebSocket сообщение: {ws_error}")
     
     try:
         logger.info(f"Начало индексации документа {document_id}: {file_path}")
+        
+        # Отправляем начальный статус через WebSocket
+        send_ws_message({
+            "type": "indexing_status",
+            "status": "indexing",
+            "message": "Начало индексации документа...",
+            "progress": 0
+        })
         
         # Обновляем статус на INDEXING
         document_service.update_document_status(
@@ -192,6 +217,14 @@ def index_document_task(document_id: int, file_path: str, db: Session):
         start_time = time.time()
         logger.info(f"Начало индексации документа {document_id}. Это может занять несколько минут для больших файлов...")
         
+        # Отправляем прогресс
+        send_ws_message({
+            "type": "indexing_status",
+            "status": "indexing",
+            "message": "Извлечение структуры документа...",
+            "progress": 10
+        })
+        
         result = pageindex_service.index_document(
             pdf_path=file_path,
             document_id=document_id
@@ -199,6 +232,14 @@ def index_document_task(document_id: int, file_path: str, db: Session):
         
         elapsed_time = time.time() - start_time
         logger.info(f"Индексация документа {document_id} заняла {elapsed_time:.2f} секунд ({elapsed_time/60:.2f} минут)")
+        
+        # Отправляем успешный статус
+        send_ws_message({
+            "type": "indexing_status",
+            "status": "ready",
+            "message": f"Индексация завершена успешно за {elapsed_time/60:.1f} минут",
+            "progress": 100
+        })
         
         # Обновляем статус на READY
         document_service.update_document_status(
@@ -215,12 +256,20 @@ def index_document_task(document_id: int, file_path: str, db: Session):
         error_msg = f"PageIndex indexing failed: {str(e)}"
         logger.error(traceback.format_exc())
         
+        # Отправляем ошибку через WebSocket
+        send_ws_message({
+            "type": "indexing_status",
+            "status": "error",
+            "message": error_msg,
+            "progress": 0
+        })
+        
         # Обновляем статус на ERROR
         try:
             document_service.update_document_status(
                 document_id=document_id,
                 status=DocumentStatus.ERROR,
-                error_message=error_msg
+                error_message=error_msg[:500]  # Ограничиваем длину сообщения об ошибке
             )
         except Exception as update_error:
             logger.error(f"Ошибка при обновлении статуса документа: {update_error}")
