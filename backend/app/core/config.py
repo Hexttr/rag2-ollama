@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "phi3:3.8b")  # Используем phi3:3.8b для лучшей производительности на GPU
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1:8b")  # Используем llama3.1:8b (phi3:3.8b имеет проблему с памятью в Ollama)
     OLLAMA_TIMEOUT: int = 900  # 15 минут - увеличен для больших документов
     
     # PageIndex
