@@ -40,136 +40,57 @@ except Exception as e:
     logger.error(traceback.format_exc())
     raise
 
-# Теперь импортируем PageIndex (уже с патчем)
+# КРИТИЧНО: Импортируем PageIndex ПОСЛЕ патчинга, но патчим еще раз после импорта
+# так как "from .utils import *" копирует функции в пространство имен модуля
 try:
     # Пытаемся импортировать из локального PageIndex
     from PageIndex.pageindex import page_index_main, config
-    # КРИТИЧНО: Патчим также page_index модуль, так как он использует "from .utils import *"
+    
+    # КРИТИЧНО: Патчим page_index модуль ПОСЛЕ импорта, так как он использует "from .utils import *"
+    # и функции копируются в его пространство имен при импорте
     try:
         import PageIndex.pageindex.page_index as page_index_module
         from pageindex_ollama import get_ollama_settings
+        
         ollama_settings = get_ollama_settings()
         if ollama_settings.get('patched'):
-            # Применяем патчинг к page_index модулю
-            import openai
-            ollama_client = openai.OpenAI(
-                api_key="ollama",
-                base_url=ollama_settings['base_url']
-            )
-            ollama_async_client = openai.AsyncOpenAI(
-                api_key="ollama",
-                base_url=ollama_settings['base_url']
-            )
+            logger.info("🔄 Применяю дополнительный патчинг к page_index модулю после импорта...")
             
-            # Патчим функции в page_index
-            def patched_ChatGPT_API(model=None, prompt=None, api_key=None, chat_history=None):
-                max_retries = 10
-                # ВАЖНО: Всегда используем модель из настроек Ollama
-                final_model = ollama_settings['model']
-                if model and model != final_model:
-                    logger.warning(f"Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
-                model = final_model
-                for i in range(max_retries):
-                    try:
-                        if chat_history:
-                            messages = chat_history.copy()
-                            messages.append({"role": "user", "content": prompt})
-                        else:
-                            messages = [{"role": "user", "content": prompt}]
-                        response = ollama_client.chat.completions.create(
-                            model=model, messages=messages, temperature=0, timeout=900  # 15 минут для больших документов
-                        )
-                        return response.choices[0].message.content
-                    except Exception as e:
-                        if i < max_retries - 1:
-                            import time
-                            time.sleep(1)
-                        else:
-                            return "Error"
+            # Получаем патченные функции из utils (они уже должны быть пропатчены)
+            import PageIndex.pageindex.utils as utils_module
             
-            async def patched_ChatGPT_API_async(model=None, prompt=None, api_key=None, chat_history=None):
-                max_retries = 10
-                # ВАЖНО: Всегда используем модель из настроек Ollama
-                final_model = ollama_settings['model']
-                if model and model != final_model:
-                    logger.warning(f"Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
-                model = final_model
-                
-                # Подготовка сообщений
-                if chat_history:
-                    messages = chat_history.copy()
-                    messages.append({"role": "user", "content": prompt})
+            # Копируем патченные функции из utils в page_index
+            if hasattr(utils_module, 'ChatGPT_API'):
+                page_index_module.ChatGPT_API = utils_module.ChatGPT_API
+                logger.info("✅ ChatGPT_API скопирована из utils в page_index")
+            if hasattr(utils_module, 'ChatGPT_API_async'):
+                page_index_module.ChatGPT_API_async = utils_module.ChatGPT_API_async
+                logger.info("✅ ChatGPT_API_async скопирована из utils в page_index")
+            if hasattr(utils_module, 'ChatGPT_API_with_finish_reason'):
+                page_index_module.ChatGPT_API_with_finish_reason = utils_module.ChatGPT_API_with_finish_reason
+                logger.info("✅ ChatGPT_API_with_finish_reason скопирована из utils в page_index")
+            
+            # Проверяем, что патчинг применился
+            if hasattr(page_index_module, 'ChatGPT_API'):
+                # Проверяем, что функция действительно патчена (не оригинальная)
+                func_code = getattr(page_index_module.ChatGPT_API, '__code__', None)
+                if func_code and 'patched' in str(func_code):
+                    logger.info("✅ Патчинг page_index модуля подтвержден")
                 else:
-                    messages = [{"role": "user", "content": prompt}]
-                
-                for i in range(max_retries):
-                    try:
-                        response = await ollama_async_client.chat.completions.create(
-                            model=model, messages=messages, temperature=0, timeout=900  # 15 минут для больших документов
-                        )
-                        return response.choices[0].message.content
-                    except Exception as e:
-                        logger.warning(f"Ошибка в async запросе ({i+1}/{max_retries}): {e}")
-                        if i < max_retries - 1:
-                            import asyncio
-                            await asyncio.sleep(1)
-                        else:
-                            logger.error(f"Max retries reached for async prompt: {str(prompt)[:100]}")
-                            return "Error"
-            
-            def patched_ChatGPT_API_with_finish_reason(model=None, prompt=None, api_key=None, chat_history=None):
-                max_retries = 10
-                # ВАЖНО: Всегда используем модель из настроек Ollama
-                final_model = ollama_settings['model']
-                if model and model != final_model:
-                    logger.warning(f"Игнорируем переданную модель '{model}', используем '{final_model}' из настроек Ollama")
-                model = final_model
-                for i in range(max_retries):
-                    try:
-                        if chat_history:
-                            messages = chat_history.copy()
-                            messages.append({"role": "user", "content": prompt})
-                        else:
-                            messages = [{"role": "user", "content": prompt}]
-                        response = ollama_client.chat.completions.create(
-                            model=model, messages=messages, temperature=0, timeout=900  # 15 минут для больших документов
-                        )
-                        finish_reason = response.choices[0].finish_reason
-                        if finish_reason == "length":
-                            return response.choices[0].message.content, "max_output_reached"
-                        elif finish_reason == "error":
-                            # Если finish_reason == "error", пробуем повторить запрос
-                            logger.warning(f"Ollama вернул finish_reason='error', повторяю запрос ({i+1}/{max_retries})")
-                            if i < max_retries - 1:
-                                import time
-                                time.sleep(1)
-                                continue
-                            else:
-                                logger.error("Max retries reached, finish_reason='error'")
-                                return "Error", "error"
-                        else:
-                            return response.choices[0].message.content, "finished"
-                    except Exception as e:
-                        if i < max_retries - 1:
-                            import time
-                            time.sleep(1)
-                        else:
-                            return "Error", "error"
-            
-            # Применяем патчинг
-            page_index_module.ChatGPT_API = patched_ChatGPT_API
-            page_index_module.ChatGPT_API_async = patched_ChatGPT_API_async
-            page_index_module.ChatGPT_API_with_finish_reason = patched_ChatGPT_API_with_finish_reason
-            logger.info("Патчинг применен к page_index модулю")
+                    logger.warning("⚠️ Функция в page_index может быть не патчена")
+        else:
+            logger.warning("⚠️ Патчинг не был выполнен, пропускаем дополнительный патчинг page_index")
     except Exception as e:
-        logger.warning(f"Не удалось патчить page_index модуль: {e}")
+        logger.warning(f"⚠️ Не удалось дополнительно патчить page_index модуль: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         
 except ImportError:
     # Если не получилось, пробуем напрямую
     try:
         from pageindex import page_index_main, config
     except ImportError as e:
-        logger.error(f"Не удалось импортировать PageIndex: {e}")
+        logger.error(f"❌ Не удалось импортировать PageIndex: {e}")
         raise
 
 class PageIndexService:

@@ -175,15 +175,44 @@ def patch_pageindex_for_ollama(
                     else:
                         messages = [{"role": "user", "content": prompt}]
                     
+                    # КРИТИЧНО: Финальная проверка перед запросом
+                    if model != _ollama_model:
+                        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: модель '{model}' не совпадает с '{_ollama_model}'! Принудительно заменяем.")
+                        model = _ollama_model
+                    
                     # КРИТИЧНО: Логируем модель перед запросом для отладки
                     logger.info(f"🔍 Отправка запроса в Ollama с моделью: '{model}' (должна быть '{_ollama_model}')")
+                    logger.debug(f"📝 Промпт (первые 100 символов): {str(prompt)[:100]}")
                     
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        temperature=0,
-                        timeout=900  # 15 минут timeout для больших документов
-                    )
+                    # Дополнительная проверка: убеждаемся что модель точно правильная
+                    assert model == _ollama_model, f"Модель должна быть '{_ollama_model}', но получили '{model}'"
+                    
+                    # КРИТИЧНО: Логируем детали запроса
+                    logger.debug(f"📤 Запрос к Ollama: model='{model}', messages_count={len(messages)}")
+                    
+                    try:
+                        response = client.chat.completions.create(
+                            model=model,
+                            messages=messages,
+                            temperature=0,
+                            timeout=900  # 15 минут timeout для больших документов
+                        )
+                        
+                        # Проверяем, какая модель реально использовалась (если доступно)
+                        if hasattr(response, 'model'):
+                            logger.debug(f"📥 Ответ от Ollama: использована модель '{response.model}'")
+                            
+                    except Exception as api_error:
+                        # Логируем детали ошибки
+                        error_str = str(api_error)
+                        logger.error(f"❌ Ошибка API Ollama: {error_str}")
+                        if "46.9" in error_str or "memory" in error_str.lower():
+                            logger.error(f"🚨 КРИТИЧЕСКАЯ ПРОБЛЕМА: Ollama пытается загрузить большую модель!")
+                            logger.error(f"🚨 Переданная модель: '{model}', ожидаемая: '{_ollama_model}'")
+                            # Проверяем, может быть проблема в имени модели
+                            if ":" in model:
+                                logger.warning(f"⚠️ Имя модели содержит ':', возможно Ollama интерпретирует его неправильно")
+                        raise
                     
                     return response.choices[0].message.content
                 except Exception as e:
@@ -232,15 +261,46 @@ def patch_pageindex_for_ollama(
                     else:
                         messages = [{"role": "user", "content": prompt}]
                     
+                    # КРИТИЧНО: Финальная проверка перед запросом
+                    if model != _ollama_model:
+                        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: модель '{model}' не совпадает с '{_ollama_model}'! Принудительно заменяем.")
+                        model = _ollama_model
+                    
                     # КРИТИЧНО: Логируем модель перед запросом для отладки
                     logger.info(f"🔍 Отправка запроса в Ollama с моделью: '{model}' (должна быть '{_ollama_model}')")
+                    logger.debug(f"📝 Промпт (первые 100 символов): {str(prompt)[:100]}")
                     
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        temperature=0,
-                        timeout=900  # 15 минут timeout для больших документов
-                    )
+                    # Дополнительная проверка: убеждаемся что модель точно правильная
+                    assert model == _ollama_model, f"Модель должна быть '{_ollama_model}', но получили '{model}'"
+                    
+                    # КРИТИЧНО: Логируем детали запроса
+                    logger.debug(f"📤 Запрос к Ollama: model='{model}', messages_count={len(messages)}")
+                    
+                    try:
+                        response = client.chat.completions.create(
+                            model=model,
+                            messages=messages,
+                            temperature=0,
+                            timeout=900  # 15 минут timeout для больших документов
+                        )
+                        
+                        # Проверяем, какая модель реально использовалась (если доступно)
+                        if hasattr(response, 'model'):
+                            logger.debug(f"📥 Ответ от Ollama: использована модель '{response.model}'")
+                        if hasattr(response, 'usage'):
+                            logger.debug(f"📊 Использовано токенов: {response.usage}")
+                            
+                    except Exception as api_error:
+                        # Логируем детали ошибки
+                        error_str = str(api_error)
+                        logger.error(f"❌ Ошибка API Ollama: {error_str}")
+                        if "46.9" in error_str or "memory" in error_str.lower():
+                            logger.error(f"🚨 КРИТИЧЕСКАЯ ПРОБЛЕМА: Ollama пытается загрузить большую модель!")
+                            logger.error(f"🚨 Переданная модель: '{model}', ожидаемая: '{_ollama_model}'")
+                            # Проверяем, может быть проблема в имени модели
+                            if ":" in model:
+                                logger.warning(f"⚠️ Имя модели содержит ':', возможно Ollama интерпретирует его неправильно")
+                        raise
                     
                     finish_reason = response.choices[0].finish_reason
                     if finish_reason == "length":
@@ -355,48 +415,56 @@ def patch_pageindex_for_ollama(
         
         # КРИТИЧНО: Патчим также в page_index, так как он использует "from .utils import *"
         # Это означает, что функции копируются в пространство имен page_index
+        # Нужно патчить ВСЕ модули, которые импортировали функции через "from .utils import *"
         try:
-            page_index_module_name = None
-            page_index_module = None
+            # Список модулей для патчинга
+            modules_to_patch = []
             
-            # Пробуем найти модуль page_index в sys.modules
+            # Пробуем найти все модули pageindex в sys.modules
             for module_name in list(sys.modules.keys()):
-                if 'page_index' in module_name and 'pageindex' in module_name:
+                if 'pageindex' in module_name.lower() or 'page_index' in module_name.lower():
                     if not module_name.endswith('.page_index_md'):
-                        page_index_module = sys.modules[module_name]
-                        page_index_module_name = module_name
-                        break
+                        module = sys.modules[module_name]
+                        if hasattr(module, 'ChatGPT_API') or hasattr(module, 'ChatGPT_API_with_finish_reason'):
+                            modules_to_patch.append((module_name, module))
             
-            # Если не нашли, пробуем импортировать
-            if page_index_module is None:
+            # Если не нашли, пробуем импортировать напрямую
+            if not modules_to_patch:
                 try:
-                    from PageIndex.pageindex.page_index import ChatGPT_API as _test
-                    # Если импорт прошел, значит модуль загружен
                     import PageIndex.pageindex.page_index as page_index_module
-                    page_index_module_name = 'PageIndex.pageindex.page_index'
+                    modules_to_patch.append(('PageIndex.pageindex.page_index', page_index_module))
                 except ImportError:
                     try:
                         import pageindex.page_index as page_index_module
-                        page_index_module_name = 'pageindex.page_index'
+                        modules_to_patch.append(('pageindex.page_index', page_index_module))
                     except ImportError:
                         pass
             
-            # Патчим функции в page_index
-            if page_index_module is not None:
-                if hasattr(page_index_module, 'ChatGPT_API'):
-                    page_index_module.ChatGPT_API = patched_ChatGPT_API
-                    logger.info(f"Патчинг ChatGPT_API применен к {page_index_module_name}")
-                if hasattr(page_index_module, 'ChatGPT_API_with_finish_reason'):
-                    page_index_module.ChatGPT_API_with_finish_reason = patched_ChatGPT_API_with_finish_reason
-                    logger.info(f"Патчинг ChatGPT_API_with_finish_reason применен к {page_index_module_name}")
-                if hasattr(page_index_module, 'ChatGPT_API_async'):
-                    page_index_module.ChatGPT_API_async = patched_ChatGPT_API_async
-                    logger.info(f"Патчинг ChatGPT_API_async применен к {page_index_module_name}")
-                if hasattr(page_index_module, 'count_tokens'):
-                    page_index_module.count_tokens = patched_count_tokens
-                    logger.info(f"Патчинг count_tokens применен к {page_index_module_name}")
+            # Патчим все найденные модули
+            for module_name, module in modules_to_patch:
+                patched_count = 0
+                if hasattr(module, 'ChatGPT_API'):
+                    module.ChatGPT_API = patched_ChatGPT_API
+                    patched_count += 1
+                if hasattr(module, 'ChatGPT_API_with_finish_reason'):
+                    module.ChatGPT_API_with_finish_reason = patched_ChatGPT_API_with_finish_reason
+                    patched_count += 1
+                if hasattr(module, 'ChatGPT_API_async'):
+                    module.ChatGPT_API_async = patched_ChatGPT_API_async
+                    patched_count += 1
+                if hasattr(module, 'count_tokens'):
+                    module.count_tokens = patched_count_tokens
+                    patched_count += 1
+                
+                if patched_count > 0:
+                    logger.info(f"✅ Патчинг применен к {module_name} ({patched_count} функций)")
+                else:
+                    logger.debug(f"Модуль {module_name} не содержит функций для патчинга")
+                    
         except Exception as e:
-            logger.warning(f"Не удалось патчить page_index модуль: {e}")
+            logger.warning(f"⚠️ Не удалось патчить page_index модули: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
         
         _patched = True
         
